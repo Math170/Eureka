@@ -422,7 +422,8 @@ async def setup(ctx):
     ))
     booster_r = discord.utils.get(guild.roles, name="Booster 🚀") or await guild.create_role(name="Booster 🚀", colour=discord.Colour.from_rgb(244, 127, 255), hoist=True)
     mayor_r = discord.utils.get(guild.roles, name="Maire 🏛️") or await guild.create_role(name="Maire 🏛️", colour=discord.Colour.from_rgb(230, 126, 34), hoist=True)
-    
+    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=True)
+
     # CREATION DE RÔLES DE BOUTIQUE
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
     vip_role = discord.utils.get(guild.roles, name="VIP ✨") or await guild.create_role(
