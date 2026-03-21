@@ -28,6 +28,49 @@ def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# --- SYSTÈME DE RÔLES À COULEURS ---
+
+class CouleurMenu(discord.ui.Select):
+    def __init__(self):
+        # On définit les options avec TES noms de rôles exacts
+        options = [
+            discord.SelectOption(label="Rouge 🔴", description="Passer mon pseudo en rouge"),
+            discord.SelectOption(label="Jaune 🟡", description="Passer mon pseudo en jaune"),
+            discord.SelectOption(label="Vert 🟢", description="Passer mon pseudo en vert"),
+            discord.SelectOption(label="Rose 🌸", description="Passer mon pseudo en rose"),
+            discord.SelectOption(label="Retirer ma couleur", emoji="❌", value="remove")
+        ]
+        super().__init__(placeholder="Choisis ta couleur de pseudo...", options=options, custom_id="couleur_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        # Liste des noms pour le nettoyage
+        noms_couleurs = ["Rouge 🔴", "Jaune 🟡", "Vert 🟢", "Rose 🌸"]
+        
+        # On récupère les objets rôles sur le serveur
+        roles_a_nettoyer = [discord.utils.get(interaction.guild.roles, name=n) for n in noms_couleurs]
+        roles_a_nettoyer = [r for r in roles_a_nettoyer if r is not None]
+
+        # 1. On retire toutes les couleurs existantes
+        await interaction.user.remove_roles(*roles_a_nettoyer)
+
+        if self.values[0] == "remove":
+            await interaction.response.send_message("✅ Ta couleur a été retirée.", ephemeral=True)
+        else:
+            # 2. On ajoute la nouvelle couleur choisie
+            choix = self.values[0]
+            nouveau_role = discord.utils.get(interaction.guild.roles, name=choix)
+            
+            if nouveau_role:
+                await interaction.user.add_roles(nouveau_role)
+                await interaction.response.send_message(f"✅ Ton pseudo est maintenant en **{choix}** !", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Erreur : Le rôle n'a pas été trouvé. Refais un `?setup`.", ephemeral=True)
+
+class CouleurView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Pour que le menu reste actif indéfiniment
+        self.add_item(CouleurMenu())
+
 # Initialisation des données
 data = load_data()
 economy = data.get("economy", {})
@@ -41,6 +84,20 @@ intents.members = True
 intents.reactions = True 
 
 bot = commands.Bot(command_prefix='?', intents=intents, help_command=None)
+
+# COMMANDE POUR ENVOYER LE PANNEAU
+@bot.command(extras={'category': '🛠️ Administration'})
+@commands.has_permissions(administrator=True)
+async def colorpanel(ctx):
+    """Envoie le menu de sélection des couleurs (Select Menu)"""
+    embed = discord.Embed(
+        title="🎨 Coloration du Pseudo",
+        description="Utilise le menu ci-dessous pour changer la couleur de ton nom sur le serveur !",
+        color=discord.Color.from_rgb(44, 47, 51)
+    )
+    embed.set_footer(text="Eureka Bot - Système de cosmétiques")
+    
+    await ctx.send(embed=embed, view=CouleurView())
 
 # --- UTILITAIRES ÉCONOMIE ---
 
