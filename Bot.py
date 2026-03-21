@@ -704,6 +704,6 @@ async def leaderboard(ctx):
 
 
 # --- LANCEMENT ---
-chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.txt")
+chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gitignore/token.txt")
 with open(chemin_token, "r") as f:
     bot.run(f.read().strip())
