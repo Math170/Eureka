@@ -426,6 +426,7 @@ async def setup(ctx):
     color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=True)
     color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=True)
     color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=True)
+    
     # CREATION DE RÔLES DE BOUTIQUE
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
     vip_role = discord.utils.get(guild.roles, name="VIP ✨") or await guild.create_role(
@@ -705,6 +706,6 @@ async def leaderboard(ctx):
 
 
 # --- LANCEMENT ---
-chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gitignore/token.txt")
+chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.txt")
 with open(chemin_token, "r") as f:
     bot.run(f.read().strip())
