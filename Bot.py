@@ -202,8 +202,8 @@ async def on_message(message):
     user_id = str(message.author.id)
     now = datetime.datetime.utcnow().timestamp()
 
-    # Anti-spam : 60 secondes entre chaque gain d'XP
-    if user_id not in xp_cooldown or now - xp_cooldown[user_id] > 60:
+    # Anti-spam : 15 secondes entre chaque gain d'XP
+    if user_id not in xp_cooldown or now - xp_cooldown[user_id] > 15:
         if user_id not in levels:
             levels[user_id] = {"xp": 0, "level": 1}
 
@@ -269,6 +269,10 @@ async def setup(ctx):
         except: pass
 
     # ROLES
+    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=False)
+    color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=False)
+    color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=False)
+    color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=False)
     owner_r = discord.utils.get(guild.roles, name="Fondateur 👑") or await guild.create_role(name="Fondateur 👑", colour=discord.Colour.from_rgb(241, 196, 15), hoist=True, permissions=discord.Permissions(
         add_reactions=False,
         administrator=True,
@@ -515,10 +519,6 @@ async def setup(ctx):
     ))
     booster_r = discord.utils.get(guild.roles, name="Booster 🚀") or await guild.create_role(name="Booster 🚀", colour=discord.Colour.from_rgb(244, 127, 255), hoist=True)
     mayor_r = discord.utils.get(guild.roles, name="Maire 🏛️") or await guild.create_role(name="Maire 🏛️", colour=discord.Colour.from_rgb(230, 126, 34), hoist=True)
-    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=False)
-    color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=False)
-    color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=False)
-    color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=False)
     
     # CREATION DE RÔLES DE BOUTIQUE
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
@@ -546,7 +546,7 @@ async def setup(ctx):
     await guild.create_text_channel("départs-🛫", category=c_info, overwrites=perms_rules)
     rules_ch = await guild.create_text_channel("règles-📋", category=c_info, overwrites=perms_rules)
     await guild.create_text_channel("annonces-📢", category=c_info, overwrites=perms_annonces)
-    await guild.create_text_channel("rôles-🎭", category=c_info, overwrites=perms_annonces)
+    roles_ch=await guild.create_text_channel("rôles-🎭", category=c_info, overwrites=perms_annonces)
     await guild.create_text_channel("partenariats-🤝", category=c_info, overwrites=perms_annonces)
 
     # --- COMMUNAUTÉ (TEXTUEL) ---
@@ -590,13 +590,14 @@ async def setup(ctx):
     await gen.send(f"✅ **Eureka !** Serveur prêt. Système actif dans {rules_ch.mention}")
     await ctx.channel.delete()
 
-    #ENVOIE DU MESSAGE POUR LES ROLES
-    embed_roles = discord.Embed(
-        title="🎭 Choisis tes rôles !",
-        description="Clique sur un emoji pour obtenir le rôle correspondant.",
-        color=discord.Color.purple()
+    # --- ENVOI DU MENU DES COULEURS ---
+    embed_couleur = discord.Embed(
+        title="🎨 Ta couleur de pseudo",
+        description="Choisis une couleur ci-dessous pour personnaliser ton nom !",
+        color=discord.Color.gold()
     )
-    msg_roles = await rules_ch.send(embed=embed_roles)
+    # On utilise la Vue des couleurs que nous avons créée
+    await roles_ch.send(embed=embed_couleur, view=CouleurView())
 
 @bot.command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(manage_messages=True)
