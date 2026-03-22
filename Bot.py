@@ -17,13 +17,15 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {"economy": {}, "warns": {}}
+    return {"economy": {}, "warns": {}, "levels": {}, "last_daily": {}}
 
 def save_data():
     """Sauvegarde l'état actuel dans le fichier JSON"""
     data = {
         "economy": economy,
-        "warns": warns
+        "warns": warns,
+        "levels": levels,
+        "last_daily": last_daily
     }
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
@@ -33,46 +35,6 @@ def save_data():
 class CouleurMenu(discord.ui.Select):
     def __init__(self):
         # On définit les options avec TES noms de rôles exacts
-        options = [
-            discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge"),
-            discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune"),
-            discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert"),
-            discord.SelectOption(label="Rose", emoji="🌸",description="Passer mon pseudo en rose"),
-            discord.SelectOption(label="Retirer ma couleur", emoji="❌", value="remove")
-        ]
-        super().__init__(placeholder="Choisis ta couleur de pseudo...", options=options, custom_id="couleur_select")
-
-    async def callback(self, interaction: discord.Interaction):
-        # Liste des noms pour le nettoyage
-        noms_couleurs = ["Rouge 🔴", "Jaune 🟡", "Vert 🟢", "Rose 🌸"]
-        
-        # On récupère les objets rôles sur le serveur
-        roles_a_nettoyer = [discord.utils.get(interaction.guild.roles, name=n) for n in noms_couleurs]
-        roles_a_nettoyer = [r for r in roles_a_nettoyer if r is not None]
-
-        # 1. On retire toutes les couleurs existantes
-        await interaction.user.remove_roles(*roles_a_nettoyer)
-
-        if self.values[0] == "remove":
-            await interaction.response.send_message("✅ Ta couleur a été retirée.", ephemeral=True)
-        else:
-            # 2. On ajoute la nouvelle couleur choisie
-            choix = self.values[0]
-            nouveau_role = discord.utils.get(interaction.guild.roles, name=choix)
-            
-            if nouveau_role:
-                await interaction.user.add_roles(nouveau_role)
-                await interaction.response.send_message(f"✅ Ton pseudo est maintenant en **{choix}** !", ephemeral=True)
-            else:
-                await interaction.response.send_message("❌ Erreur : Le rôle n'a pas été trouvé. Refais un `?setup`.", ephemeral=True)
-class CouleurView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None) # Pour que le menu reste actif indéfiniment
-        self.add_item(CouleurMenu())
-
-# Ce système permet aux membres de choisir un rôle en tuilisant un selct menu
-class CouleurMenu(discord.ui.Select):
-    def __init__(self):
         options = [
             discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge"),
             discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune"),
@@ -206,8 +168,7 @@ async def on_member_remove(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         await channel.send(embed=embed)
 
-# --- LOGS DE MESSAGES ---
-
+# on_message
 @bot.event
 async def on_message_delete(message):
     if message.author.bot: return
@@ -227,6 +188,40 @@ async def on_message_edit(before, after):
         embed.add_field(name="Ancien", value=before.content, inline=False)
         embed.add_field(name="Nouveau", value=after.content, inline=False)
         await log_ch.send(embed=embed)
+
+xp_cooldown = {} # Pour l'anti-spam
+@bot.event
+async def on_message(message):
+    global levels, xp_cooldown
+    if message.author.bot or message.content.startswith('?'):
+        await bot.process_commands(message)
+        return
+
+    user_id = str(message.author.id)
+    now = datetime.datetime.utcnow().timestamp()
+
+    # Anti-spam : 60 secondes entre chaque gain d'XP
+    if user_id not in xp_cooldown or now - xp_cooldown[user_id] > 60:
+        if user_id not in levels:
+            levels[user_id] = {"xp": 0, "level": 1}
+
+        xp_gagne = random.randint(15, 25)
+        levels[user_id]["xp"] += xp_gagne
+        xp_cooldown[user_id] = now
+
+        # Calcul de l'XP requis pour le niveau suivant
+        lvl_actuel = levels[user_id]["level"]
+        xp_requis = 5 * (lvl_actuel ** 2) + (50 * lvl_actuel) + 100
+
+        if levels[user_id]["xp"] >= xp_requis:
+            levels[user_id]["level"] += 1
+            levels[user_id]["xp"] = 0 # On remet l'XP à 0 ou on garde le surplus
+            save_data()
+            await message.channel.send(f"🎊 Bravo {message.author.mention} ! Tu passes au **Niveau {lvl_actuel + 1}** ! 🚀")
+        
+        save_data()
+
+    await bot.process_commands(message)
 
 # --- COMMANDES D'AIDE ET STATS ---
 
@@ -667,7 +662,7 @@ async def game(ctx):
         await ctx.send(f"⌛ Perdu ! C'était {nb}.")
     except: await ctx.send("⏰ Temps écoulé.")
 
-# --- SYSTÈME D'ÉCONOMIE ---
+# --- SYSTÈME D'ÉCONOMIE ET NIVEAUX ---
 economy = {} # {user_id: solde}
 
 def get_balance(user_id):
@@ -709,6 +704,48 @@ async def addmoney(ctx, member: discord.Member, amount: int):
     """Donne de l'argent à un membre"""
     add_balance(member.id, amount)
     await ctx.send(f"👑 **{amount} pièces** ont été ajoutées à {member.display_name}.")
+
+# --- SYSTÈME DE NIVEAUX ---
+@bot.command(extras={'category': '📈 Niveaux'})
+async def rank(ctx, member: discord.Member = None):
+    """Affiche ton niveau et ton XP actuelle"""
+    member = member or ctx.author
+    user_id = str(member.id)
+
+    if user_id not in levels:
+        return await ctx.send(f"✨ {member.display_name} n'a pas encore envoyé de messages.")
+
+    xp = levels[user_id]["xp"]
+    lvl = levels[user_id]["level"]
+    xp_requis = 5 * (lvl ** 2) + (50 * lvl) + 100
+
+    embed = discord.Embed(title=f"📊 Rang de {member.display_name}", color=discord.Color.blue())
+    embed.add_field(name="Niveau", value=f"⭐ {lvl}", inline=True)
+    embed.add_field(name="XP", value=f"🧪 {xp}/{xp_requis}", inline=True)
+    
+    # Barre de progression simple
+    progres = int((xp / xp_requis) * 10)
+    barre = "🟦" * progres + "⬜" * (10 - progres)
+    embed.add_field(name="Progression", value=barre, inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(extras={'category': '📈 Niveaux'})
+async def leaderboard_xp(ctx):
+    """Affiche les 5 membres ayant le plus haut niveau"""
+    if not levels:
+        return await ctx.send("Le classement est vide.")
+
+    # Tri par niveau, puis par XP
+    sorted_levels = sorted(levels.items(), key=lambda x: (x[1]['level'], x[1]['xp']), reverse=True)[:5]
+    
+    embed = discord.Embed(title="🏆 Top 5 - Eureka Levels", color=discord.Color.purple())
+    for i, (u_id, stats) in enumerate(sorted_levels, 1):
+        user = bot.get_user(int(u_id))
+        name = user.name if user else f"Membre {u_id}"
+        embed.add_field(name=f"{i}. {name}", value=f"Niveau {stats['level']} ({stats['xp']} XP)", inline=False)
+    
+    await ctx.send(embed=embed)
 
 # --- COMMANDES DE BOUTIQUE ---
 
