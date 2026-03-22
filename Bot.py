@@ -76,6 +76,8 @@ class CouleurView(discord.ui.View):
 data = load_data()
 economy = data.get("economy", {})
 warns = data.get("warns", {})
+levels = data.get("levels", {}) 
+last_daily = data.get("last_daily", {})
 
 # Configuration du Bot
 intents = discord.Intents.default()
