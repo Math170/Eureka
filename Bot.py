@@ -28,16 +28,16 @@ def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# --- SYSTÈME DE RÔLES À COULEURS ---
-
+# SYSTÈME DE SÉLECTION DE ROLE AVEC SELECT MENU
+# Ce système permet aux membres de choisir une couleur de pseudo parmi les rôles pré-créés.
 class CouleurMenu(discord.ui.Select):
     def __init__(self):
         # On définit les options avec TES noms de rôles exacts
         options = [
-            discord.SelectOption(label="Rouge 🔴", description="Passer mon pseudo en rouge"),
-            discord.SelectOption(label="Jaune 🟡", description="Passer mon pseudo en jaune"),
-            discord.SelectOption(label="Vert 🟢", description="Passer mon pseudo en vert"),
-            discord.SelectOption(label="Rose 🌸", description="Passer mon pseudo en rose"),
+            discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge"),
+            discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune"),
+            discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert"),
+            discord.SelectOption(label="Rose", emoji="🌸",description="Passer mon pseudo en rose"),
             discord.SelectOption(label="Retirer ma couleur", emoji="❌", value="remove")
         ]
         super().__init__(placeholder="Choisis ta couleur de pseudo...", options=options, custom_id="couleur_select")
@@ -65,7 +65,46 @@ class CouleurMenu(discord.ui.Select):
                 await interaction.response.send_message(f"✅ Ton pseudo est maintenant en **{choix}** !", ephemeral=True)
             else:
                 await interaction.response.send_message("❌ Erreur : Le rôle n'a pas été trouvé. Refais un `?setup`.", ephemeral=True)
+class CouleurView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Pour que le menu reste actif indéfiniment
+        self.add_item(CouleurMenu())
 
+# Ce système permet aux membres de choisir un rôle en tuilisant un selct menu
+class CouleurMenu(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge"),
+            discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune"),
+            discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert"),
+            discord.SelectOption(label="Rose", emoji="🌸",description="Passer mon pseudo en rose"),
+            discord.SelectOption(label="Retirer ma couleur", emoji="❌", value="remove")
+        ]
+        super().__init__(placeholder="Choisis ta couleur de pseudo...", options=options, custom_id="couleur_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        # Liste des noms pour le nettoyage
+        noms_couleurs = ["Rouge 🔴", "Jaune 🟡", "Vert 🟢", "Rose 🌸"]
+        
+        # On récupère les objets rôles sur le serveur
+        roles_a_nettoyer = [discord.utils.get(interaction.guild.roles, name=n) for n in noms_couleurs]
+        roles_a_nettoyer = [r for r in roles_a_nettoyer if r is not None]
+
+        # 1. On retire toutes les couleurs existantes
+        await interaction.user.remove_roles(*roles_a_nettoyer)
+
+        if self.values[0] == "remove":
+            await interaction.response.send_message("✅ Ta couleur a été retirée.", ephemeral=True)
+        else:
+            # 2. On ajoute la nouvelle couleur choisie
+            choix = self.values[0]
+            nouveau_role = discord.utils.get(interaction.guild.roles, name=choix)
+            
+            if nouveau_role:
+                await interaction.user.add_roles(nouveau_role)
+                await interaction.response.send_message(f"✅ Ton pseudo est maintenant en **{choix}** !", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Erreur : Le rôle n'a pas été trouvé. Refais un `?setup`.", ephemeral=True)
 class CouleurView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None) # Pour que le menu reste actif indéfiniment
@@ -507,10 +546,12 @@ async def setup(ctx):
 
     # --- INFORMATIONS ---
     c_info = await guild.create_category("📢--INFORMATIONS--📢")
+    await guild.create_text_channel("arrivées-🛬", category=c_info, overwrites=perms_rules)
+    await guild.create_text_channel("départs-🛫", category=c_info, overwrites=perms_rules)
     rules_ch = await guild.create_text_channel("règles-📋", category=c_info, overwrites=perms_rules)
     await guild.create_text_channel("annonces-📢", category=c_info, overwrites=perms_annonces)
+    await guild.create_text_channel("rôles-🎭", category=c_info, overwrites=perms_annonces)
     await guild.create_text_channel("partenariats-🤝", category=c_info, overwrites=perms_annonces)
-    await guild.create_text_channel("arrivées-🛫", category=c_info, overwrites=perms_rules)
 
     # --- COMMUNAUTÉ (TEXTUEL) ---
     c_commu = await guild.create_category("💬--COMMUNAUTÉ--💬", overwrites=perms_hide)
