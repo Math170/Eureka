@@ -533,6 +533,26 @@ async def setup(ctx):
         hoist=True
     )
 
+    # --- HIÉRARCHIE DES RÔLES ---
+    # On définit l'ordre. Plus le chiffre est grand, plus le rôle est haut.
+    try:
+        await guild.edit_role_positions({
+            color_red_r: 15,
+            color_yellow_r: 14,
+            color_green_r: 13,
+            color_pink_r: 12,
+            owner_r: 11,
+            admin_r: 10,
+            mod_r: 9,
+            booster_r: 8,
+            mayor_r: 7,
+            vip_role: 6,
+            million_role: 5,
+            member_r: 4
+        })
+    except discord.Forbidden:
+        pass # Si le bot n'a pas son rôle assez haut, on ignore l'erreur
+
     # PERMISSIONS
     perms_hide = {guild.default_role: discord.PermissionOverwrite(view_channel=False), member_r: discord.PermissionOverwrite(view_channel=True), mod_r: discord.PermissionOverwrite(view_channel=True)}
     perms_rules = {guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=False, add_reactions=False), member_r: discord.PermissionOverwrite(send_messages=False, add_reactions=False)}
