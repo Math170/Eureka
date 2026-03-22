@@ -527,7 +527,6 @@ async def setup(ctx):
         colour=discord.Colour.from_rgb(255, 215, 0), # Couleur dorée
         hoist=True # Pour qu'ils apparaissent séparément dans la liste des membres
     )
-
     million_role = discord.utils.get(guild.roles, name="Millionnaire 👑") or await guild.create_role(
         name="Millionnaire 👑", 
         colour=discord.Colour.from_rgb(192, 192, 192), # Couleur argent
@@ -590,6 +589,14 @@ async def setup(ctx):
 
     await gen.send(f"✅ **Eureka !** Serveur prêt. Système actif dans {rules_ch.mention}")
     await ctx.channel.delete()
+
+    #ENVOIE DU MESSAGE POUR LES ROLES
+    embed_roles = discord.Embed(
+        title="🎭 Choisis tes rôles !",
+        description="Clique sur un emoji pour obtenir le rôle correspondant.",
+        color=discord.Color.purple()
+    )
+    msg_roles = await rules_ch.send(embed=embed_roles)
 
 @bot.command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(manage_messages=True)
