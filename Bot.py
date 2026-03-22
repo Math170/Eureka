@@ -515,10 +515,10 @@ async def setup(ctx):
     ))
     booster_r = discord.utils.get(guild.roles, name="Booster 🚀") or await guild.create_role(name="Booster 🚀", colour=discord.Colour.from_rgb(244, 127, 255), hoist=True)
     mayor_r = discord.utils.get(guild.roles, name="Maire 🏛️") or await guild.create_role(name="Maire 🏛️", colour=discord.Colour.from_rgb(230, 126, 34), hoist=True)
-    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=True)
-    color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=True)
-    color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=True)
-    color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=True)
+    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=False)
+    color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=False)
+    color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=False)
+    color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=False)
     
     # CREATION DE RÔLES DE BOUTIQUE
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
