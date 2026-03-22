@@ -51,7 +51,7 @@ class CouleurMenu(discord.ui.Select):
         roles_a_nettoyer = [r for r in roles_a_nettoyer if r is not None]
 
         # 1. On retire toutes les couleurs existantes
-        #await interaction.user.remove_roles(roles_a_nettoyer)
+        await interaction.user.remove_roles(roles_a_nettoyer)
 
         if self.values[0] == "remove":
             await interaction.response.send_message("✅ Ta couleur a été retirée.", ephemeral=True)
