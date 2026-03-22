@@ -89,7 +89,7 @@ intents.reactions = True
 bot = commands.Bot(command_prefix='?', intents=intents, help_command=None)
 
 # COMMANDE POUR ENVOYER LE PANNEAU
-@bot.command(extras={'category': '🛠️ Administration'})
+'''@bot.command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def colorpanel(ctx):
     """Envoie le menu de sélection des couleurs (Select Menu)"""
@@ -102,7 +102,7 @@ async def colorpanel(ctx):
     
     await ctx.send(embed=embed, view=CouleurView())
 
-# --- UTILITAIRES ÉCONOMIE ---
+# --- UTILITAIRES ÉCONOMIE ---'''
 
 def get_balance(user_id):
     user_id = str(user_id) # JSON transforme les clés en string
