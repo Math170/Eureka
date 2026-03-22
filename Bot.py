@@ -36,10 +36,10 @@ class CouleurMenu(discord.ui.Select):
     def __init__(self):
         # On définit les options avec TES noms de rôles exacts
         options = [
-            discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge"),
-            discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune"),
-            discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert"),
-            discord.SelectOption(label="Rose", emoji="🌸",description="Passer mon pseudo en rose"),
+            discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge", value="Rouge 🔴"),
+            discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune", value="Jaune 🟡"),
+            discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert", value="Vert 🟢"),
+            discord.SelectOption(label="Rose", emoji="🌸",description="Passer mon pseudo en rose", value="Rose 🌸"),
             discord.SelectOption(label="Retirer ma couleur", emoji="❌", value="remove")
         ]
         super().__init__(placeholder="Choisis ta couleur de pseudo...", options=options, custom_id="couleur_select")
@@ -586,8 +586,7 @@ async def setup(ctx):
     )
     msg = await rules_ch.send(embed=embed)
     await msg.add_reaction("✅")
-
-    await gen.send(f"✅ **Eureka !** Serveur prêt. Système actif dans {rules_ch.mention}")
+    
     await ctx.channel.delete()
 
     # --- ENVOI DU MENU DES COULEURS ---
