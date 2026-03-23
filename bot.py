@@ -473,6 +473,17 @@ async def stats(ctx):
     embed.add_field(name="Salons", value=str(len(guild.channels)))
     await ctx.send(embed=embed)
 
+@bot.hybrid_command(extras={'category': '✨ Utilitaires'})
+async def dashboard(ctx):
+    """Affiche le lien vers le site web/dashboard du bot"""
+    url = os.getenv("DASHBOARD_URL", "http://127.0.0.1:5000")
+    embed = discord.Embed(
+        title="🌐 Site Internet / Dashboard", 
+        description=f"Consulte les classements, ton économie et gère le bot depuis le panel web :\n\n🔗 **[Clique ici pour accéder au Dashboard]({url})**",
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed)
+
 # --- ADMINISTRATION ---
 
 @bot.hybrid_command(extras={'category': '🛠️ Administration'})
