@@ -257,8 +257,9 @@ async def on_raw_reaction_add(payload):
 async def on_ready():
     print(f'✅ Connecté en tant que {bot.user}')
     
+    await bot.tree.sync()
     # --- STATUT DU BOT ---
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"{len(bot.guilds)} serveurs | ?help"))
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"{len(bot.guilds)} serveurs | /help"))
     
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -426,7 +427,7 @@ class HelpMenu(discord.ui.Select):
         embed = discord.Embed(title=f"📚 Aide - {cat_name}", color=discord.Color.blue())
         value = ""
         for c in sorted(cmd_list, key=lambda x: x.name):
-            value += f"**?{c.name}** : *{c.help or 'Aucune description'}*\n"
+            value += f"**/{c.name}** : *{c.help or 'Aucune description'}*\n"
         
         embed.description = value
         # Le paramètre ephemeral=True fait en sorte que seul l'utilisateur voit ce message !
@@ -441,11 +442,11 @@ class HelpView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # On vérifie que seul l'auteur de la commande puisse utiliser le menu
         if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Utilise ta propre commande `?help` pour naviguer !", ephemeral=True)
+            await interaction.response.send_message("❌ Utilise ta propre commande `/help` pour naviguer !", ephemeral=True)
             return False
         return True
 
-@bot.command()
+@bot.hybrid_command()
 async def help(ctx):
     """Affiche le menu d'aide interactif"""
     categories = {}
@@ -463,7 +464,7 @@ async def help(ctx):
     embed.set_thumbnail(url=bot.user.display_avatar.url)
     await ctx.send(embed=embed, view=HelpView(categories, ctx.author.id))
 
-@bot.command(extras={'category': '✨ Utilitaires'})
+@bot.hybrid_command(extras={'category': '✨ Utilitaires'})
 async def stats(ctx):
     """Affiche les statistiques du serveur"""
     guild = ctx.guild
@@ -474,10 +475,11 @@ async def stats(ctx):
 
 # --- ADMINISTRATION ---
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
     """Reconstruction totale sécurisée avec Reaction Role"""
+    await ctx.defer()
     guild = ctx.guild
     await ctx.send("🏗️ **Lancement de la reconstruction...**")
     for ch in guild.channels:
@@ -874,10 +876,11 @@ async def setup(ctx):
     )
     await roles_ch.send(embed=embed_roles, view=RoleView())
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(manage_messages=True)
 async def clear(ctx, amount: int):
-    """Supprime un nombre de messages : ?clear 10"""
+    """Supprime un nombre de messages : /clear 10"""
+    await ctx.defer()
     await ctx.channel.purge(limit=amount + 1)
     msg = await ctx.send(f"🧹 **{amount}** messages supprimés.")
     await asyncio.sleep(3)
@@ -893,7 +896,7 @@ async def send_log(ctx, action, member, reason):
         embed.add_field(name="Raison", value=reason)
         await log_ch.send(embed=embed)
 
-@bot.command(extras={'category': '🛡️ Modération'})
+@bot.hybrid_command(extras={'category': '🛡️ Modération'})
 @commands.has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason="Aucune raison"):
     """Expulse un membre du serveur"""
@@ -901,7 +904,7 @@ async def kick(ctx, member: discord.Member, *, reason="Aucune raison"):
     await send_log(ctx, "Expulsion 👢", member, reason)
     await ctx.send(f"✅ {member.name} expulsé.")
 
-@bot.command(extras={'category': '🛡️ Modération'})
+@bot.hybrid_command(extras={'category': '🛡️ Modération'})
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason="Aucune raison"):
     """Bannit définitivement un membre"""
@@ -909,7 +912,7 @@ async def ban(ctx, member: discord.Member, *, reason="Aucune raison"):
     await send_log(ctx, "Bannissement 🚫", member, reason)
     await ctx.send(f"✅ {member.name} banni.")
 
-@bot.command(extras={'category': '🛡️ Modération'})
+@bot.hybrid_command(extras={'category': '🛡️ Modération'})
 @commands.has_permissions(manage_messages=True)
 async def warn(ctx, member: discord.Member, *, reason="Aucune raison"):
     """Donne un warn et prévient en MP"""
@@ -930,12 +933,12 @@ async def warn(ctx, member: discord.Member, *, reason="Aucune raison"):
 
 # --- MINI-JEUX ---
 
-@bot.command(extras={'category': '🎮 Mini-Jeux'})
+@bot.hybrid_command(extras={'category': '🎮 Mini-Jeux'})
 async def pof(ctx):
     """Lance une pièce (Pile ou Face)"""
     await ctx.send(f"🪙 Résultat : **{random.choice(['Pile', 'Face'])}**")
 
-@bot.command(extras={'category': '🎮 Mini-Jeux'})
+@bot.hybrid_command(extras={'category': '🎮 Mini-Jeux'})
 async def game(ctx):
     """Jeu du Juste Prix (1-100)"""
     nb = random.randint(1, 100)
@@ -954,14 +957,14 @@ async def game(ctx):
 
 # --- COMMANDES ÉCONOMIE ---
 
-@bot.command(extras={'category': '💰 Économie'})
+@bot.hybrid_command(extras={'category': '💰 Économie'})
 async def balance(ctx, member: discord.Member = None):
     """Affiche ton solde ou celui d'un membre"""
     member = member or ctx.author
     bal = get_balance(member.id, ctx.guild.id)
     await ctx.send(f"🪙 **{member.display_name}** possède **{bal} pièces**.")
 
-@bot.command(extras={'category': '💰 Économie'})
+@bot.hybrid_command(extras={'category': '💰 Économie'})
 async def pay(ctx, member: discord.Member, amount: int):
     """Transfère de l'argent à un autre joueur"""
     if amount <= 0:
@@ -974,7 +977,7 @@ async def pay(ctx, member: discord.Member, amount: int):
     add_balance(member.id, ctx.guild.id, amount)
     await ctx.send(f"💸 {ctx.author.mention} a envoyé **{amount} pièces** à {member.mention} !")
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def addmoney(ctx, member: discord.Member, amount: int):
     """Donne de l'argent à un membre"""
@@ -983,7 +986,7 @@ async def addmoney(ctx, member: discord.Member, amount: int):
 
 # --- SYSTÈME DE NIVEAUX ---
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def addxp(ctx, member: discord.Member, amount: int):
     """Donne de l'XP à un membre"""
@@ -992,7 +995,7 @@ async def addxp(ctx, member: discord.Member, amount: int):
     await add_xp_to_user(member, amount, ctx.channel)
     await ctx.send(f"✅ **{amount} XP** ont été donnés à {member.mention}.")
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def removexp(ctx, member: discord.Member, amount: int):
     """Retire de l'XP à un membre"""
@@ -1004,7 +1007,7 @@ async def removexp(ctx, member: discord.Member, amount: int):
     update_level_stats(user_id, guild_id, xp, level)
     await ctx.send(f"✅ **{amount} XP** ont été retirés à {member.mention}.")
 
-@bot.command(extras={'category': '🛠️ Administration'})
+@bot.hybrid_command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def setlevel(ctx, member: discord.Member, level: int):
     """Définit le niveau d'un membre manuellement"""
@@ -1017,7 +1020,7 @@ async def setlevel(ctx, member: discord.Member, level: int):
     update_level_stats(user_id, guild_id, 0, level)
     await ctx.send(f"✅ Le niveau de {member.mention} a été défini sur **{level}**.")
 
-@bot.command(extras={'category': '📈 Niveaux'})
+@bot.hybrid_command(extras={'category': '📈 Niveaux'})
 async def rank(ctx, member: discord.Member = None):
     """Affiche ton niveau et ton XP actuelle"""
     member = member or ctx.author
@@ -1040,7 +1043,7 @@ async def rank(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-@bot.command(extras={'category': '📈 Niveaux'})
+@bot.hybrid_command(extras={'category': '📈 Niveaux'})
 async def leaderboard_xp(ctx):
     """Affiche les 5 membres ayant le plus haut niveau"""
     conn = sqlite3.connect(DB_FILE)
@@ -1061,7 +1064,7 @@ async def leaderboard_xp(ctx):
 
 # --- ANNIVERSAIRES ---
 
-@bot.command(extras={'category': '🎉 Anniversaires'})
+@bot.hybrid_command(extras={'category': '🎉 Anniversaires'})
 async def setbirthday(ctx, date: str):
     """Définit ton anniversaire (format JJ/MM)"""
     try:
@@ -1082,7 +1085,7 @@ async def setbirthday(ctx, date: str):
     
     await ctx.send(f"🎂 Ton anniversaire a été enregistré pour le **{date}** !")
 
-@bot.command(extras={'category': '🎉 Anniversaires'})
+@bot.hybrid_command(extras={'category': '🎉 Anniversaires'})
 async def birthday(ctx):
     """Récupère ta récompense d'anniversaire !"""
     user_id = str(ctx.author.id)
@@ -1095,7 +1098,7 @@ async def birthday(ctx):
     
     if not row or not row[0]:
         conn.close()
-        return await ctx.send("❌ Tu n'as pas défini ton anniversaire ! Utilise d'abord `?setbirthday JJ/MM`.")
+        return await ctx.send("❌ Tu n'as pas défini ton anniversaire ! Utilise d'abord `/setbirthday JJ/MM`.")
         
     birthday = row[0]
     last_claim = row[1]
@@ -1122,18 +1125,19 @@ async def birthday(ctx):
 
 # --- COMMANDES DE BOUTIQUE ---
 
-@bot.command(extras={'category': '💰 Économie'})
+@bot.hybrid_command(extras={'category': '💰 Économie'})
 async def shop(ctx):
     """Affiche les articles disponibles à l'achat"""
     embed = discord.Embed(title="🛒 Boutique Eureka", description="Achète des grades avec tes pièces !", color=discord.Color.blue())
-    embed.add_field(name="✨ Rôle VIP", value="Prix : 5,000 pièces\nCommande : `?buy vip`", inline=False)
-    embed.add_field(name="👑 Rôle Millionnaire", value="Prix : 50,000 pièces\nCommande : `?buy million`", inline=False)
+    embed.add_field(name="✨ Rôle VIP", value="Prix : 5,000 pièces\nCommande : `/buy vip`", inline=False)
+    embed.add_field(name="👑 Rôle Millionnaire", value="Prix : 50,000 pièces\nCommande : `/buy million`", inline=False)
     embed.set_footer(text="Assurez-vous que les rôles existent sur le serveur !")
     await ctx.send(embed=embed)
 
-@bot.command(extras={'category': '💰 Économie'})
-async def buy(ctx, item: str.lower):
+@bot.hybrid_command(extras={'category': '💰 Économie'})
+async def buy(ctx, item: str):
     """Achète un objet de la boutique"""
+    item = item.lower()
     user_id = str(ctx.author.id)
     balance = get_balance(user_id, ctx.guild.id)
 
@@ -1165,7 +1169,7 @@ async def buy(ctx, item: str.lower):
 
 # --- MINI-JEUX CASINO ---
 
-@bot.command(extras={'category': '🎰 Casino'})
+@bot.hybrid_command(extras={'category': '🎰 Casino'})
 async def slots(ctx, bet: int):
     """Machine à sous : tente de gagner le jackpot !"""
     if bet <= 0: return await ctx.send("Mise invalide.")
@@ -1189,7 +1193,7 @@ async def slots(ctx, bet: int):
     else:
         await ctx.send(f"{res_msg}💀 **Perdu...**")
 
-@bot.command(extras={'category': '🎰 Casino'})
+@bot.hybrid_command(extras={'category': '🎰 Casino'})
 async def roulette(ctx, color: str, bet: int):
     """Roulette : mise sur 'rouge', 'noir' ou 'vert'"""
     color = color.lower()
@@ -1213,7 +1217,7 @@ async def roulette(ctx, color: str, bet: int):
     else:
         await ctx.send(f"🎰 La bille s'arrête sur le **{result_num} {result_color.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
 
-@bot.command(extras={'category': '🎰 Casino'})
+@bot.hybrid_command(extras={'category': '🎰 Casino'})
 async def roll(ctx, bet: int):
     """Lance les dés (1-100). Fais plus de 50 pour doubler !"""
     if bet <= 0: return await ctx.send("❌ Mise invalide.")
@@ -1229,7 +1233,7 @@ async def roll(ctx, bet: int):
     else:
         await ctx.send(f"🎲 Tu as fait **{result}**...\n❌ **Perdu !**")
 
-@bot.command(extras={'category': '🎰 Casino'})
+@bot.hybrid_command(extras={'category': '🎰 Casino'})
 async def coinflip(ctx, face: str, bet: int):
     """Pile ou Face avec mise ! Choisis 'pile' ou 'face'"""
     face = face.lower()
@@ -1248,7 +1252,7 @@ async def coinflip(ctx, face: str, bet: int):
     else:
         await ctx.send(f"🪙 La pièce tombe sur **{result.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
 
-@bot.command(extras={'category': '💰 Économie'})
+@bot.hybrid_command(extras={'category': '💰 Économie'})
 async def work(ctx):
     """Gagne un salaire aléatoire (toutes les 1h)"""
     # Ici tu peux ajouter un cooldown avec @commands.cooldown(1, 3600, commands.BucketType.user)
@@ -1256,7 +1260,7 @@ async def work(ctx):
     add_balance(ctx.author.id, ctx.guild.id, gain)
     await ctx.send(f"👷 **{ctx.author.name}**, tu as travaillé dur et gagné **{gain} pièces** !")
 
-@bot.command(extras={'category': '💰 Économie'})
+@bot.hybrid_command(extras={'category': '💰 Économie'})
 async def leaderboard(ctx):
     """Affiche les plus riches"""
     conn = sqlite3.connect(DB_FILE)
