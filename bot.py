@@ -1034,6 +1034,7 @@ async def rank(ctx, member: discord.Member = None):
     
     # Barre de progression simple
     progres = int((xp / xp_requis) * 10)
+    progres = max(0, min(10, progres)) # Bloque à 10 carrés maximum pour éviter le crash !
     barre = "🟦" * progres + "⬜" * (10 - progres)
     embed.add_field(name="Progression", value=barre, inline=False)
     

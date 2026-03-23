@@ -216,8 +216,21 @@ async def admin_action():
         c.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} pièces retirées au membre {target_id}."
     elif action == "add_xp":
-        c.execute("UPDATE users SET xp = xp + ? WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
-        msg = f"✅ {amount} XP ajouté au membre {target_id}."
+        c.execute("SELECT xp, level FROM users WHERE user_id = ? AND guild_id = ?", (target_id, current_guild))
+        row = c.fetchone()
+        xp, level = row[0], row[1]
+        xp += amount
+        
+        while True:
+            xp_requis = 5 * (level ** 2) + (50 * level) + 100
+            if xp >= xp_requis:
+                level += 1
+                xp -= xp_requis
+            else:
+                break
+                
+        c.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ? AND guild_id = ?", (xp, level, target_id, current_guild))
+        msg = f"✅ {amount} XP ajouté au membre {target_id} (Niveau atteint : {level})."
     elif action == "remove_xp":
         c.execute("UPDATE users SET xp = MAX(0, xp - ?) WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} XP retiré au membre {target_id}."
