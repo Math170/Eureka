@@ -2,6 +2,7 @@ from quart import Quart, render_template_string, session, redirect, request, url
 import sqlite3
 import os
 import aiohttp
+from urllib.parse import quote
 from dotenv import load_dotenv
 
 load_dotenv() # Charge les variables secrètes depuis le fichier .env
@@ -13,8 +14,6 @@ DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db"
 # --- CONFIGURATION DISCORD OAUTH2 ---
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = "http://127.0.0.1:5000/callback"
-OAUTH_URL = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fcallback&scope=identify"
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -95,7 +94,13 @@ async def economy():
 
 @app.route("/login")
 async def login():
-    return redirect(OAUTH_URL)
+    redirect_uri = request.host_url.rstrip('/') + "/callback"
+    # Force le HTTPS si on n'est pas en local (obligatoire pour Discord)
+    if "127.0.0.1" not in redirect_uri and "localhost" not in redirect_uri:
+        redirect_uri = redirect_uri.replace("http://", "https://")
+        
+    oauth_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={quote(redirect_uri)}&scope=identify"
+    return redirect(oauth_url)
 
 @app.route("/logout")
 async def logout():
@@ -107,9 +112,13 @@ async def callback():
     code = request.args.get("code")
     if not code: return "Erreur : Aucun code fourni."
 
+    redirect_uri = request.host_url.rstrip('/') + "/callback"
+    if "127.0.0.1" not in redirect_uri and "localhost" not in redirect_uri:
+        redirect_uri = redirect_uri.replace("http://", "https://")
+
     data = {
         "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
-        "grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI
+        "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri
     }
     
     async with aiohttp.ClientSession() as http_session:
