@@ -7,7 +7,6 @@ import asyncio
 import datetime
 
 # --- CONFIGURATION DES FICHIERS ---
-# Ce fichier stockera l'argent et les warns
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.json")
 
 def load_data():
@@ -29,10 +28,8 @@ def save_data():
         json.dump(data, f, indent=4)
 
 # SYSTÈME DE SÉLECTION DE ROLE AVEC SELECT MENU
-# Ce système permet aux membres de choisir une couleur de pseudo parmi les rôles pré-créés.
 class CouleurMenu(discord.ui.Select):
     def __init__(self):
-        # On définit les options avec TES noms de rôles exacts
         options = [
             discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge", value="Rouge 🔴"),
             discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune", value="Jaune 🟡"),
@@ -168,19 +165,17 @@ class PronounMenu(discord.ui.Select):
 class RoleView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(PronounMenu()) # Ajout du menu des pronoms tout en haut !
+        self.add_item(PronounMenu())
         self.add_item(RoleMenu("🎮 Choisis tes jeux...", [("Gamer 🎮", "🎮"), ("FPS 🔫", "🔫"), ("RPG 🗡️", "🗡️")], "select_jeux"))
         self.add_item(RoleMenu("📚 Choisis tes loisirs...", [("Littéraire 📚", "📚"), ("Cinéphile 🎬", "🎬"), ("Artiste 🎨", "🎨")], "select_loisirs"))
         self.add_item(RoleMenu("✨ Choisis ton style...", [("Chill ☕", "☕"), ("Noctambule 🦉", "🦉"), ("Actif ⚡", "⚡")], "select_vibe"))
 
-# Initialisation des données
 data = load_data()
 economy = data.get("economy", {})
 warns = data.get("warns", {})
 levels = data.get("levels", {}) 
 last_daily = data.get("last_daily", {})
 
-# Configuration du Bot
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -213,7 +208,6 @@ async def on_raw_reaction_add(payload):
         guild = bot.get_guild(payload.guild_id)
         channel = bot.get_channel(payload.channel_id)
         
-        # On vérifie si le salon contient "règles" dans son nom
         if "règles" in channel.name.lower():
             member = guild.get_member(payload.user_id)
             role = discord.utils.get(guild.roles, name="Membre 👤")
@@ -263,7 +257,6 @@ async def on_member_remove(member):
             except discord.HTTPException:
                 pass
 
-# on_message
 @bot.event
 async def on_message_delete(message):
     if message.author.bot: return
@@ -358,7 +351,6 @@ async def on_message(message):
 class HelpMenu(discord.ui.Select):
     def __init__(self, categories_dict):
         self.categories_dict = categories_dict
-        # On crée une option dans le menu pour chaque catégorie trouvée
         options = [discord.SelectOption(label=cat, value=cat) for cat in categories_dict.keys()]
         super().__init__(placeholder="Choisis une catégorie...", options=options)
 
@@ -694,12 +686,12 @@ async def setup(ctx):
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
     vip_role = await init_role(
         "VIP ✨", 
-        colour=discord.Colour.from_rgb(255, 215, 0), # Couleur dorée
+        colour=discord.Colour.from_rgb(255, 215, 0),
         hoist=True # Pour qu'ils apparaissent séparément dans la liste des membres
     )
     million_role = await init_role(
         "Millionnaire 👑", 
-        colour=discord.Colour.from_rgb(192, 192, 192), # Couleur argent
+        colour=discord.Colour.from_rgb(192, 192, 192),
         hoist=True
     )
 
@@ -807,7 +799,6 @@ async def setup(ctx):
         description="Choisis une couleur ci-dessous pour personnaliser ton nom !",
         color=discord.Color.gold()
     )
-    # On utilise la Vue des couleurs que nous avons créée
     await roles_ch.send(embed=embed_couleur, view=CouleurView())
 
     # --- ENVOI DU MENU DES CENTRES D'INTÉRÊT ---
@@ -1056,7 +1047,7 @@ async def slots(ctx, bet: int):
     emojis = ["🍎", "🍊", "🍇", "💎", "🔔"]
     r1, r2, r3 = [random.choice(emojis) for _ in range(3)]
     
-    add_balance(ctx.author.id, -bet) # On retire la mise
+    add_balance(ctx.author.id, -bet)
     
     res_msg = f"🎰 **[ {r1} | {r2} | {r3} ]** 🎰\n"
     
