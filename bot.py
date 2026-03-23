@@ -17,8 +17,8 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('PRAGMA journal_mode=WAL;')
-    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 1000, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, reason TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT, guild_id TEXT, balance INTEGER DEFAULT 1000, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, username TEXT, PRIMARY KEY (user_id, guild_id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, guild_id TEXT, reason TEXT)''')
     try:
         c.execute("ALTER TABLE users ADD COLUMN username TEXT")
     except sqlite3.OperationalError:
@@ -28,30 +28,29 @@ def init_db():
 
 init_db()
 
-def get_user_db(user_id):
+def get_user_db(user_id, guild_id):
     """Récupère les infos d'un utilisateur ou le crée s'il n'existe pas"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT balance, xp, level FROM users WHERE user_id = ?", (str(user_id),))
+    c.execute("SELECT balance, xp, level FROM users WHERE user_id = ? AND guild_id = ?", (str(user_id), str(guild_id)))
     row = c.fetchone()
     if not row:
-        c.execute("INSERT INTO users (user_id) VALUES (?)", (str(user_id),))
-        conn.commit()
         row = (1000, 0, 1)
     conn.close()
     return row
 
-def update_user_name(user_id, username):
+def update_user_name(user_id, guild_id, username):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, str(user_id)))
+    c.execute("UPDATE users SET username = ? WHERE user_id = ? AND guild_id = ?", (username, str(user_id), str(guild_id)))
     conn.commit()
     conn.close()
 
-def update_level_stats(user_id, xp, level):
+def update_level_stats(user_id, guild_id, xp, level):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (xp, level, str(user_id)))
+    c.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ? AND guild_id = ?", (xp, level, str(user_id), str(guild_id)))
     conn.commit()
     conn.close()
 
@@ -206,15 +205,16 @@ intents.reactions = True
 
 bot = commands.Bot(command_prefix='?', intents=intents, help_command=None)
 
-def get_balance(user_id):
-    return get_user_db(user_id)[0]
+def get_balance(user_id, guild_id):
+    return get_user_db(user_id, guild_id)[0]
 
-def add_balance(user_id, amount):
+def add_balance(user_id, guild_id, amount):
     user_id = str(user_id)
-    get_user_db(user_id)
+    guild_id = str(guild_id)
+    get_user_db(user_id, guild_id)
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ? AND guild_id = ?", (amount, user_id, guild_id))
     conn.commit()
     conn.close()
 
@@ -244,6 +244,31 @@ async def on_raw_reaction_add(payload):
                     pass
 
 # --- ÉVÉNEMENTS DE BASE ---
+
+@bot.event
+async def on_ready():
+    print(f'✅ Connecté en tant que {bot.user}')
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in c.fetchall()]
+    if columns and "guild_id" not in columns:
+        print("🔄 Migration Multi-Serveurs en cours...")
+        c.execute("ALTER TABLE users RENAME TO old_users")
+        c.execute('''CREATE TABLE users (user_id TEXT, guild_id TEXT, balance INTEGER DEFAULT 1000, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, username TEXT, PRIMARY KEY (user_id, guild_id))''')
+        c.execute("ALTER TABLE warns RENAME TO old_warns")
+        c.execute('''CREATE TABLE warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, guild_id TEXT, reason TEXT)''')
+        
+        main_guild_id = str(bot.guilds[0].id) if bot.guilds else "0"
+        
+        c.execute("INSERT INTO users (user_id, guild_id, balance, xp, level, username) SELECT user_id, ?, balance, xp, level, username FROM old_users", (main_guild_id,))
+        c.execute("INSERT INTO warns (id, user_id, guild_id, reason) SELECT id, user_id, ?, reason FROM old_warns", (main_guild_id,))
+        
+        c.execute("DROP TABLE old_users")
+        c.execute("DROP TABLE old_warns")
+        conn.commit()
+        print("✅ Migration Multi-Serveurs terminée !")
+    conn.close()
 
 @bot.event
 async def on_member_join(member):
@@ -309,7 +334,8 @@ LEVEL_ROLES = {
 
 async def add_xp_to_user(member: discord.Member, amount: int, channel: discord.TextChannel):
     user_id = str(member.id)
-    _, xp, level = get_user_db(user_id)
+    guild_id = str(member.guild.id)
+    _, xp, level = get_user_db(user_id, guild_id)
     
     old_level = level
     xp += amount
@@ -325,7 +351,7 @@ async def add_xp_to_user(member: discord.Member, amount: int, channel: discord.T
         else:
             break
             
-    update_level_stats(user_id, xp, level)
+    update_level_stats(user_id, guild_id, xp, level)
 
     if leveled_up:
         # Recherche du salon d'annonce ou utilise le salon actuel par défaut
@@ -347,12 +373,16 @@ xp_cooldown = {} # Pour l'anti-spam
 @bot.event
 async def on_message(message):
     global xp_cooldown
+    
+    if message.guild is None: # Ignore les messages privés
+        return
 
     # Enregistre le pseudo au moindre message (même si c'est une commande !)
     if not message.author.bot:
         user_id = str(message.author.id)
-        get_user_db(user_id) # S'assure que le profil existe en base de données
-        update_user_name(user_id, message.author.name) # Met à jour le pseudo
+        guild_id = str(message.guild.id)
+        get_user_db(user_id, guild_id) 
+        update_user_name(user_id, guild_id, message.author.name)
 
     if message.author.bot or message.content.startswith('?'):
         await bot.process_commands(message)
@@ -873,8 +903,8 @@ async def warn(ctx, member: discord.Member, *, reason="Aucune raison"):
     """Donne un warn et prévient en MP"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO warns (user_id, reason) VALUES (?, ?)", (str(member.id), reason))
-    c.execute("SELECT COUNT(*) FROM warns WHERE user_id = ?", (str(member.id),))
+    c.execute("INSERT INTO warns (user_id, guild_id, reason) VALUES (?, ?, ?)", (str(member.id), str(ctx.guild.id), reason))
+    c.execute("SELECT COUNT(*) FROM warns WHERE user_id = ? AND guild_id = ?", (str(member.id), str(ctx.guild.id)))
     nb = c.fetchone()[0]
     conn.commit()
     conn.close()
@@ -916,7 +946,7 @@ async def game(ctx):
 async def balance(ctx, member: discord.Member = None):
     """Affiche ton solde ou celui d'un membre"""
     member = member or ctx.author
-    bal = get_balance(member.id)
+    bal = get_balance(member.id, ctx.guild.id)
     await ctx.send(f"🪙 **{member.display_name}** possède **{bal} pièces**.")
 
 @bot.command(extras={'category': '💰 Économie'})
@@ -925,18 +955,18 @@ async def pay(ctx, member: discord.Member, amount: int):
     if amount <= 0:
         return await ctx.send("❌ Le montant doit être positif.")
     
-    if get_balance(ctx.author.id) < amount:
+    if get_balance(ctx.author.id, ctx.guild.id) < amount:
         return await ctx.send("❌ Tu n'as pas assez d'argent !")
     
-    add_balance(ctx.author.id, -amount)
-    add_balance(member.id, amount)
+    add_balance(ctx.author.id, ctx.guild.id, -amount)
+    add_balance(member.id, ctx.guild.id, amount)
     await ctx.send(f"💸 {ctx.author.mention} a envoyé **{amount} pièces** à {member.mention} !")
 
 @bot.command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(administrator=True)
 async def addmoney(ctx, member: discord.Member, amount: int):
     """Donne de l'argent à un membre"""
-    add_balance(member.id, amount)
+    add_balance(member.id, ctx.guild.id, amount)
     await ctx.send(f"👑 **{amount} pièces** ont été ajoutées à {member.display_name}.")
 
 # --- SYSTÈME DE NIVEAUX ---
@@ -955,10 +985,11 @@ async def addxp(ctx, member: discord.Member, amount: int):
 async def removexp(ctx, member: discord.Member, amount: int):
     """Retire de l'XP à un membre"""
     user_id = str(member.id)
-    _, xp, level = get_user_db(user_id)
+    guild_id = str(ctx.guild.id)
+    _, xp, level = get_user_db(user_id, guild_id)
     if amount <= 0: return await ctx.send("❌ Montant invalide.")
     xp = max(0, xp - amount)
-    update_level_stats(user_id, xp, level)
+    update_level_stats(user_id, guild_id, xp, level)
     await ctx.send(f"✅ **{amount} XP** ont été retirés à {member.mention}.")
 
 @bot.command(extras={'category': '🛠️ Administration'})
@@ -969,8 +1000,9 @@ async def setlevel(ctx, member: discord.Member, level: int):
         return await ctx.send("❌ Le niveau doit être supérieur à 0.")
         
     user_id = str(member.id)
-    get_user_db(user_id)
-    update_level_stats(user_id, 0, level)
+    guild_id = str(ctx.guild.id)
+    get_user_db(user_id, guild_id)
+    update_level_stats(user_id, guild_id, 0, level)
     await ctx.send(f"✅ Le niveau de {member.mention} a été défini sur **{level}**.")
 
 @bot.command(extras={'category': '📈 Niveaux'})
@@ -978,8 +1010,8 @@ async def rank(ctx, member: discord.Member = None):
     """Affiche ton niveau et ton XP actuelle"""
     member = member or ctx.author
     user_id = str(member.id)
-
-    _, xp, lvl = get_user_db(user_id)
+    guild_id = str(ctx.guild.id)
+    _, xp, lvl = get_user_db(user_id, guild_id)
     if xp == 0 and lvl == 1: return await ctx.send(f"✨ {member.display_name} n'a pas encore envoyé de messages.")
 
     xp_requis = 5 * (lvl ** 2) + (50 * lvl) + 100
@@ -1029,7 +1061,7 @@ async def shop(ctx):
 async def buy(ctx, item: str.lower):
     """Achète un objet de la boutique"""
     user_id = str(ctx.author.id)
-    balance = get_balance(user_id)
+    balance = get_balance(user_id, ctx.guild.id)
 
     items = {
         "vip": {"price": 5000, "role_name": "VIP ✨"},
@@ -1053,7 +1085,7 @@ async def buy(ctx, item: str.lower):
         return await ctx.send("❌ Tu possèdes déjà ce rôle !")
 
     # Transaction
-    add_balance(user_id, -price)
+    add_balance(user_id, ctx.guild.id, -price)
     await ctx.author.add_roles(role)
     await ctx.send(f"🎉 Félicitations {ctx.author.mention}, tu as acheté le rôle **{role_name}** !")
 
@@ -1063,22 +1095,22 @@ async def buy(ctx, item: str.lower):
 async def slots(ctx, bet: int):
     """Machine à sous : tente de gagner le jackpot !"""
     if bet <= 0: return await ctx.send("Mise invalide.")
-    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+    if get_balance(ctx.author.id, ctx.guild.id) < bet: return await ctx.send("❌ Solde insuffisant.")
 
     emojis = ["🍎", "🍊", "🍇", "💎", "🔔"]
     r1, r2, r3 = [random.choice(emojis) for _ in range(3)]
     
-    add_balance(ctx.author.id, -bet)
+    add_balance(ctx.author.id, ctx.guild.id, -bet)
     
     res_msg = f"🎰 **[ {r1} | {r2} | {r3} ]** 🎰\n"
     
     if r1 == r2 == r3:
         win = bet * 10
-        add_balance(ctx.author.id, win)
+        add_balance(ctx.author.id, ctx.guild.id, win)
         await ctx.send(f"{res_msg}💰 **JACKPOT !** Tu gagnes **{win} pièces** !")
     elif r1 == r2 or r2 == r3 or r1 == r3:
         win = bet * 2
-        add_balance(ctx.author.id, win)
+        add_balance(ctx.author.id, ctx.guild.id, win)
         await ctx.send(f"{res_msg}✅ **Gagné !** Tu remportes **{win} pièces**.")
     else:
         await ctx.send(f"{res_msg}💀 **Perdu...**")
@@ -1090,9 +1122,9 @@ async def roulette(ctx, color: str, bet: int):
     if color not in ['rouge', 'noir', 'vert']:
         return await ctx.send("❌ Choisis une couleur valide : `rouge`, `noir` ou `vert`.")
     if bet <= 0: return await ctx.send("❌ Mise invalide.")
-    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+    if get_balance(ctx.author.id, ctx.guild.id) < bet: return await ctx.send("❌ Solde insuffisant.")
 
-    add_balance(ctx.author.id, -bet)
+    add_balance(ctx.author.id, ctx.guild.id, -bet)
     result_num = random.randint(0, 36)
     
     if result_num == 0: result_color = 'vert'
@@ -1102,7 +1134,7 @@ async def roulette(ctx, color: str, bet: int):
     if color == result_color:
         multiplier = 14 if result_color == 'vert' else 2
         win = bet * multiplier
-        add_balance(ctx.author.id, win)
+        add_balance(ctx.author.id, ctx.guild.id, win)
         await ctx.send(f"🎰 La bille s'arrête sur le **{result_num} {result_color.capitalize()}** !\n🎉 **Gagné !** Tu remportes **{win} pièces** !")
     else:
         await ctx.send(f"🎰 La bille s'arrête sur le **{result_num} {result_color.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
@@ -1111,14 +1143,14 @@ async def roulette(ctx, color: str, bet: int):
 async def roll(ctx, bet: int):
     """Lance les dés (1-100). Fais plus de 50 pour doubler !"""
     if bet <= 0: return await ctx.send("❌ Mise invalide.")
-    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+    if get_balance(ctx.author.id, ctx.guild.id) < bet: return await ctx.send("❌ Solde insuffisant.")
 
-    add_balance(ctx.author.id, -bet)
+    add_balance(ctx.author.id, ctx.guild.id, -bet)
     result = random.randint(1, 100)
 
     if result > 50:
         win = bet * 2
-        add_balance(ctx.author.id, win)
+        add_balance(ctx.author.id, ctx.guild.id, win)
         await ctx.send(f"🎲 Tu as fait **{result}** !\n✅ **Gagné !** Tu remportes **{win} pièces**.")
     else:
         await ctx.send(f"🎲 Tu as fait **{result}**...\n❌ **Perdu !**")
@@ -1130,14 +1162,14 @@ async def coinflip(ctx, face: str, bet: int):
     if face not in ['pile', 'face']:
         return await ctx.send("❌ Choisis `pile` ou `face`.")
     if bet <= 0: return await ctx.send("❌ Mise invalide.")
-    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+    if get_balance(ctx.author.id, ctx.guild.id) < bet: return await ctx.send("❌ Solde insuffisant.")
 
-    add_balance(ctx.author.id, -bet)
+    add_balance(ctx.author.id, ctx.guild.id, -bet)
     result = random.choice(['pile', 'face'])
 
     if face == result:
         win = bet * 2
-        add_balance(ctx.author.id, win)
+        add_balance(ctx.author.id, ctx.guild.id, win)
         await ctx.send(f"🪙 La pièce tombe sur **{result.capitalize()}** !\n🎉 **Gagné !** Tu remportes **{win} pièces**.")
     else:
         await ctx.send(f"🪙 La pièce tombe sur **{result.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
@@ -1147,7 +1179,7 @@ async def work(ctx):
     """Gagne un salaire aléatoire (toutes les 1h)"""
     # Ici tu peux ajouter un cooldown avec @commands.cooldown(1, 3600, commands.BucketType.user)
     gain = random.randint(50, 250)
-    add_balance(ctx.author.id, gain)
+    add_balance(ctx.author.id, ctx.guild.id, gain)
     await ctx.send(f"👷 **{ctx.author.name}**, tu as travaillé dur et gagné **{gain} pièces** !")
 
 @bot.command(extras={'category': '💰 Économie'})
@@ -1155,7 +1187,7 @@ async def leaderboard(ctx):
     """Affiche les plus riches"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 5")
+    c.execute("SELECT user_id, balance FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 5", (str(ctx.guild.id),))
     sorted_eco = c.fetchall()
     conn.close()
 

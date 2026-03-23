@@ -63,6 +63,7 @@ HTML_TEMPLATE = """
                     <option value="add_money">💰 Ajouter Pièces</option>
                     <option value="remove_money">💸 Retirer Pièces</option>
                 </select>
+                <input type="hidden" name="guild_id" value="{{ current_guild }}">
                 <input type="number" name="amount" placeholder="Montant" required min="1">
                 <button type="submit" class="btn" style="background-color: #43b581;">Exécuter</button>
             </form>
@@ -72,8 +73,19 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="nav">
-            <a href="/">🏆 Niveaux</a>
-            <a href="/economy">💰 Économie</a>
+            <a href="/?guild_id={{ current_guild }}">🏆 Niveaux</a>
+            <a href="/economy?guild_id={{ current_guild }}">💰 Économie</a>
+        </div>
+
+        <div style="margin: 20px auto; width: 50%; text-align: center;">
+            <form action="{{ request.path }}" method="get">
+                <label for="guild_select" style="font-weight: bold; color: white;">Serveur : </label>
+                <select name="guild_id" id="guild_select" onchange="this.form.submit()" style="padding: 10px; border-radius: 5px; background: #2c2f33; color: white; border: 1px solid #7289da;">
+                    {% for g in guilds %}
+                        <option value="{{ g }}" {% if g == current_guild %}selected{% endif %}>Serveur ID : {{ g }}</option>
+                    {% endfor %}
+                </select>
+            </form>
         </div>
 
         <h1>{{ title }}</h1>
@@ -97,28 +109,42 @@ async def index():
     msg = request.args.get("msg")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    
+    c.execute("SELECT DISTINCT guild_id FROM users WHERE guild_id IS NOT NULL")
+    guilds = [row[0] for row in c.fetchall()]
+    current_guild = request.args.get("guild_id")
+    if not current_guild and guilds:
+        current_guild = guilds[0]
+
     try:
-        c.execute("SELECT user_id, xp, level, username FROM users ORDER BY level DESC, xp DESC LIMIT 10")
+        c.execute("SELECT user_id, xp, level, username FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
     except sqlite3.OperationalError:
-        c.execute("SELECT user_id, xp, level, user_id FROM users ORDER BY level DESC, xp DESC LIMIT 10")
+        c.execute("SELECT user_id, xp, level, user_id FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
     leaderboard = c.fetchall()
     conn.close()
     
-    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="levels", title="🏆 Leaderboard - Top Niveaux", message=msg)
+    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="levels", title="🏆 Leaderboard - Top Niveaux", message=msg, guilds=guilds, current_guild=current_guild, request=request)
 
 @app.route("/economy")
 async def economy():
     msg = request.args.get("msg")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    
+    c.execute("SELECT DISTINCT guild_id FROM users WHERE guild_id IS NOT NULL")
+    guilds = [row[0] for row in c.fetchall()]
+    current_guild = request.args.get("guild_id")
+    if not current_guild and guilds:
+        current_guild = guilds[0]
+
     try:
-        c.execute("SELECT user_id, balance, 0, username FROM users ORDER BY balance DESC LIMIT 10")
+        c.execute("SELECT user_id, balance, 0, username FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
     except sqlite3.OperationalError:
-        c.execute("SELECT user_id, balance, 0, user_id FROM users ORDER BY balance DESC LIMIT 10")
+        c.execute("SELECT user_id, balance, 0, user_id FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
     leaderboard = c.fetchall()
     conn.close()
     
-    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="economy", title="💰 Leaderboard - Économie", message=msg)
+    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="economy", title="💰 Leaderboard - Économie", message=msg, guilds=guilds, current_guild=current_guild, request=request)
 
 @app.route("/admin_action", methods=["POST"])
 async def admin_action():
@@ -129,6 +155,7 @@ async def admin_action():
     form = await request.form
     target_id = form.get("target_id", "").strip()
     action = form.get("action")
+    current_guild = form.get("guild_id", "0")
     try:
         amount = int(form.get("amount", 0))
     except ValueError:
@@ -140,21 +167,21 @@ async def admin_action():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    c.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,))
+    c.execute("SELECT balance FROM users WHERE user_id = ? AND guild_id = ?", (target_id, current_guild))
     if not c.fetchone():
-        c.execute("INSERT INTO users (user_id) VALUES (?)", (target_id,))
+        c.execute("INSERT INTO users (user_id, guild_id) VALUES (?, ?)", (target_id, current_guild))
 
     if action == "add_money":
-        c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
+        c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} pièces ajoutées au membre {target_id}."
     elif action == "remove_money":
-        c.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE user_id = ?", (amount, target_id))
+        c.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} pièces retirées au membre {target_id}."
     elif action == "add_xp":
-        c.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, target_id))
+        c.execute("UPDATE users SET xp = xp + ? WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} XP ajouté au membre {target_id}."
     elif action == "remove_xp":
-        c.execute("UPDATE users SET xp = MAX(0, xp - ?) WHERE user_id = ?", (amount, target_id))
+        c.execute("UPDATE users SET xp = MAX(0, xp - ?) WHERE user_id = ? AND guild_id = ?", (amount, target_id, current_guild))
         msg = f"✅ {amount} XP retiré au membre {target_id}."
     
     conn.commit()
@@ -162,8 +189,8 @@ async def admin_action():
 
     referer = request.headers.get("Referer")
     if referer and "economy" in referer:
-        return redirect(url_for("economy", msg=msg))
-    return redirect(url_for("index", msg=msg))
+        return redirect(url_for("economy", msg=msg, guild_id=current_guild))
+    return redirect(url_for("index", msg=msg, guild_id=current_guild))
 
 @app.route("/login")
 async def login():
