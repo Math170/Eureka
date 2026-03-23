@@ -23,16 +23,18 @@ HTML_TEMPLATE = """
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #2c2f33; color: white; text-align: center; }
         .header { padding: 20px; background-color: #23272a; display: flex; justify-content: flex-end; align-items: center; gap: 15px; }
-            .nav { display: flex; justify-content: center; gap: 15px; margin-top: 20px; }
-            .nav a { background-color: #7289da; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; }
-            .nav a:hover { background-color: #4752C4; }
+        .nav { display: flex; justify-content: center; gap: 15px; margin-top: 20px; }
+        .nav a { background-color: #7289da; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .nav a:hover { background-color: #4752C4; }
         h1 { color: #7289da; margin-top: 30px; }
         table { margin: 0 auto; border-collapse: collapse; width: 60%; background-color: #23272a; border-radius: 8px; overflow: hidden;}
         th, td { padding: 15px; border-bottom: 1px solid #2c2f33; }
         th { background-color: #7289da; font-weight: bold;}
-        .btn { background-color: #5865F2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .btn { background-color: #5865F2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; border: none; cursor: pointer;}
         .btn:hover { background-color: #4752C4; }
         .avatar { width: 40px; height: 40px; border-radius: 50%; }
+        .admin-box { background-color: #23272a; padding: 20px; border-radius: 8px; width: 50%; margin: 20px auto; border: 2px solid #7289da; }
+        input, select { padding: 10px; border-radius: 5px; border: none; margin: 5px; }
     </style>
 </head>
 <body>
@@ -41,33 +43,58 @@ HTML_TEMPLATE = """
             <img class="avatar" src="https://cdn.discordapp.com/avatars/{{ session['user']['id'] }}/{{ session['user']['avatar'] }}.png" alt="Avatar">
             <span>Connecté en tant que <b>{{ session['user']['username'] }}</b></span>
             <a href="/logout" class="btn" style="background-color: #ED4245;">Se déconnecter</a>
-        {% else %}
-            <a href="/login" class="btn">Se connecter avec Discord</a>
         {% endif %}
     </div>
 
-    <div class="nav">
-        <a href="/">🏆 Niveaux</a>
-        <a href="/economy">💰 Économie</a>
-    </div>
+    {% if not session.get('user') %}
+        <div style="margin-top: 100px;">
+            <h1>🔒 Accès Restreint</h1>
+            <p>Ce panel est réservé à l'administration du bot.</p><br>
+            <a href="/login" class="btn">Connexion Propriétaire</a>
+        </div>
+    {% else %}
+        <div class="admin-box">
+            <h2>🛠️ Actions Rapides</h2>
+            <form action="/admin_action" method="post">
+                <input type="text" name="target_id" placeholder="ID Discord du membre" required>
+                <select name="action">
+                    <option value="add_xp">➕ Ajouter XP</option>
+                    <option value="remove_xp">➖ Retirer XP</option>
+                    <option value="add_money">💰 Ajouter Pièces</option>
+                    <option value="remove_money">💸 Retirer Pièces</option>
+                </select>
+                <input type="number" name="amount" placeholder="Montant" required min="1">
+                <button type="submit" class="btn" style="background-color: #43b581;">Exécuter</button>
+            </form>
+            {% if message %}
+                <p style="color: #43b581; font-weight: bold; margin-top: 15px;">{{ message }}</p>
+            {% endif %}
+        </div>
 
-    <h1>{{ title }}</h1>
-    <table>
-        <tr><th>Position</th><th>Membre</th>
-            {% if page == 'levels' %}<th>Niveau</th><th>XP</th>{% else %}<th>Solde</th>{% endif %}
-        </tr>
-        {% for i, row in enumerate(leaderboard, 1) %}
-        <tr><td>#{{ i }}</td><td>{{ row[3] or row[0] }}</td>
-            {% if page == 'levels' %}<td>⭐ {{ row[2] }}</td><td>{{ row[1] }} XP</td>{% else %}<td>🪙 {{ row[1] }} pièces</td>{% endif %}
-        </tr>
-        {% endfor %}
-    </table>
+        <div class="nav">
+            <a href="/">🏆 Niveaux</a>
+            <a href="/economy">💰 Économie</a>
+        </div>
+
+        <h1>{{ title }}</h1>
+        <table>
+            <tr><th>Position</th><th>Membre</th><th>ID Copiable</th>
+                {% if page == 'levels' %}<th>Niveau</th><th>XP</th>{% else %}<th>Solde</th>{% endif %}
+            </tr>
+            {% for i, row in enumerate(leaderboard, 1) %}
+            <tr><td>#{{ i }}</td><td>{{ row[3] or 'Inconnu' }}</td><td><code>{{ row[0] }}</code></td>
+                {% if page == 'levels' %}<td>⭐ {{ row[2] }}</td><td>{{ row[1] }} XP</td>{% else %}<td>🪙 {{ row[1] }} pièces</td>{% endif %}
+            </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
 </body>
 </html>
 """
 
 @app.route("/")
 async def index():
+    msg = request.args.get("msg")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
@@ -77,10 +104,11 @@ async def index():
     leaderboard = c.fetchall()
     conn.close()
     
-    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="levels", title="🏆 Leaderboard - Top Niveaux")
+    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="levels", title="🏆 Leaderboard - Top Niveaux", message=msg)
 
 @app.route("/economy")
 async def economy():
+    msg = request.args.get("msg")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
@@ -90,7 +118,52 @@ async def economy():
     leaderboard = c.fetchall()
     conn.close()
     
-    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="economy", title="💰 Leaderboard - Économie")
+    return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="economy", title="💰 Leaderboard - Économie", message=msg)
+
+@app.route("/admin_action", methods=["POST"])
+async def admin_action():
+    owner_id = os.getenv("OWNER_ID")
+    if not session.get("user") or str(session["user"]["id"]) != str(owner_id):
+        return "Non autorisé", 403
+    
+    form = await request.form
+    target_id = form.get("target_id", "").strip()
+    action = form.get("action")
+    try:
+        amount = int(form.get("amount", 0))
+    except ValueError:
+        amount = 0
+
+    if amount <= 0 or not target_id:
+        return redirect(url_for("index", msg="Erreur : Données invalides."))
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    c.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,))
+    if not c.fetchone():
+        c.execute("INSERT INTO users (user_id) VALUES (?)", (target_id,))
+
+    if action == "add_money":
+        c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
+        msg = f"✅ {amount} pièces ajoutées au membre {target_id}."
+    elif action == "remove_money":
+        c.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE user_id = ?", (amount, target_id))
+        msg = f"✅ {amount} pièces retirées au membre {target_id}."
+    elif action == "add_xp":
+        c.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, target_id))
+        msg = f"✅ {amount} XP ajouté au membre {target_id}."
+    elif action == "remove_xp":
+        c.execute("UPDATE users SET xp = MAX(0, xp - ?) WHERE user_id = ?", (amount, target_id))
+        msg = f"✅ {amount} XP retiré au membre {target_id}."
+    
+    conn.commit()
+    conn.close()
+
+    referer = request.headers.get("Referer")
+    if referer and "economy" in referer:
+        return redirect(url_for("economy", msg=msg))
+    return redirect(url_for("index", msg=msg))
 
 @app.route("/login")
 async def login():
@@ -129,8 +202,11 @@ async def callback():
         async with http_session.get("https://discord.com/api/users/@me", headers=headers) as user_resp:
             user_info = await user_resp.json()
 
-        # Sauvegarde le profil de l'utilisateur dans son navigateur
-        session["user"] = {"id": user_info["id"], "username": user_info["username"], "avatar": user_info.get("avatar")}
+        owner_id = os.getenv("OWNER_ID")
+        if str(user_info["id"]) == str(owner_id):
+            session["user"] = {"id": user_info["id"], "username": user_info["username"], "avatar": user_info.get("avatar")}
+        else:
+            return f"Accès refusé : Vous n'êtes pas le propriétaire de ce bot. (Votre ID : {user_info['id']})"
         
     return redirect(url_for("index"))
 
