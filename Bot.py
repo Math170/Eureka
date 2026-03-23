@@ -31,6 +31,7 @@ def save_data():
 class CouleurMenu(discord.ui.Select):
     def __init__(self):
         options = [
+            #test de couleurs basiques, on peut en ajouter autant qu'on veut tant qu'on les crée dans le setup
             discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge", value="Rouge 🔴"),
             discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune", value="Jaune 🟡"),
             discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert", value="Vert 🟢"),
