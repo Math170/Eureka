@@ -94,10 +94,9 @@ async def economy():
 
 @app.route("/login")
 async def login():
-    redirect_uri = request.host_url.rstrip('/') + "/callback"
-    # Force le HTTPS si on n'est pas en local (obligatoire pour Discord)
-    if "127.0.0.1" not in redirect_uri and "localhost" not in redirect_uri:
-        redirect_uri = redirect_uri.replace("http://", "https://")
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    proto = request.headers.get("X-Forwarded-Proto", "http" if "127.0.0.1" in host or "localhost" in host else "https")
+    redirect_uri = f"{proto}://{host}/callback"
         
     oauth_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={quote(redirect_uri)}&scope=identify"
     return redirect(oauth_url)
@@ -112,9 +111,9 @@ async def callback():
     code = request.args.get("code")
     if not code: return "Erreur : Aucun code fourni."
 
-    redirect_uri = request.host_url.rstrip('/') + "/callback"
-    if "127.0.0.1" not in redirect_uri and "localhost" not in redirect_uri:
-        redirect_uri = redirect_uri.replace("http://", "https://")
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    proto = request.headers.get("X-Forwarded-Proto", "http" if "127.0.0.1" in host or "localhost" in host else "https")
+    redirect_uri = f"{proto}://{host}/callback"
 
     data = {
         "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
