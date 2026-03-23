@@ -347,12 +347,18 @@ xp_cooldown = {} # Pour l'anti-spam
 @bot.event
 async def on_message(message):
     global xp_cooldown
+
+    # Enregistre le pseudo au moindre message (même si c'est une commande !)
+    if not message.author.bot:
+        user_id = str(message.author.id)
+        get_user_db(user_id) # S'assure que le profil existe en base de données
+        update_user_name(user_id, message.author.name) # Met à jour le pseudo
+
     if message.author.bot or message.content.startswith('?'):
         await bot.process_commands(message)
         return
 
     user_id = str(message.author.id)
-    update_user_name(user_id, message.author.name) # Enregistre le pseudo pour le site web
     now = datetime.datetime.utcnow().timestamp()
 
     # Anti-spam : 15 secondes entre chaque gain d'XP
