@@ -23,6 +23,14 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN username TEXT")
     except sqlite3.OperationalError:
         pass # La colonne existe déjà
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN birthday TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN last_bday_claim INTEGER")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -248,6 +256,10 @@ async def on_raw_reaction_add(payload):
 @bot.event
 async def on_ready():
     print(f'✅ Connecté en tant que {bot.user}')
+    
+    # --- STATUT DU BOT ---
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"{len(bot.guilds)} serveurs | ?help"))
+    
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("PRAGMA table_info(users)")
@@ -1045,6 +1057,67 @@ async def leaderboard_xp(ctx):
         embed.add_field(name=f"{i}. {name}", value=f"Niveau {lvl} ({xp} XP)", inline=False)
     
     await ctx.send(embed=embed)
+
+# --- ANNIVERSAIRES ---
+
+@bot.command(extras={'category': '🎉 Anniversaires'})
+async def setbirthday(ctx, date: str):
+    """Définit ton anniversaire (format JJ/MM)"""
+    try:
+        # Vérifie que le format est bien un jour/mois valide
+        datetime.datetime.strptime(date, "%d/%m")
+    except ValueError:
+        return await ctx.send("❌ Format invalide. Utilise le format `JJ/MM` (exemple : `25/12` pour le 25 décembre).")
+    
+    user_id = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+    get_user_db(user_id, guild_id) # S'assure que le profil existe
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET birthday = ? WHERE user_id = ? AND guild_id = ?", (date, user_id, guild_id))
+    conn.commit()
+    conn.close()
+    
+    await ctx.send(f"🎂 Ton anniversaire a été enregistré pour le **{date}** !")
+
+@bot.command(extras={'category': '🎉 Anniversaires'})
+async def birthday(ctx):
+    """Récupère ta récompense d'anniversaire !"""
+    user_id = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT birthday, last_bday_claim FROM users WHERE user_id = ? AND guild_id = ?", (user_id, guild_id))
+    row = c.fetchone()
+    
+    if not row or not row[0]:
+        conn.close()
+        return await ctx.send("❌ Tu n'as pas défini ton anniversaire ! Utilise d'abord `?setbirthday JJ/MM`.")
+        
+    birthday = row[0]
+    last_claim = row[1]
+    
+    now = datetime.datetime.now()
+    current_date = now.strftime("%d/%m")
+    current_year = now.year
+    
+    if birthday != current_date:
+        conn.close()
+        return await ctx.send(f"❌ Ce n'est pas ton anniversaire aujourd'hui ! (Il est défini au **{birthday}**)")
+        
+    if last_claim == current_year:
+        conn.close()
+        return await ctx.send("❌ Tu as déjà récupéré ta récompense d'anniversaire cette année, petit malin !")
+        
+    # On donne la récompense et on marque l'année en cours pour ne plus pouvoir spam
+    reward = 5000 # Tu peux modifier le montant de la récompense ici
+    c.execute("UPDATE users SET balance = balance + ?, last_bday_claim = ? WHERE user_id = ? AND guild_id = ?", (reward, current_year, user_id, guild_id))
+    conn.commit()
+    conn.close()
+    
+    await ctx.send(f"🎉 **JOYEUX ANNIVERSAIRE {ctx.author.mention} !** 🎉\nVoici **{reward} pièces** pour fêter ça ! 🎁")
 
 # --- COMMANDES DE BOUTIQUE ---
 

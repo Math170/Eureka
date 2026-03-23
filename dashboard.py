@@ -50,9 +50,10 @@ HTML_TEMPLATE = """
         <div style="margin-top: 100px;">
             <h1>🔒 Accès Restreint</h1>
             <p>Ce panel est réservé à l'administration du bot.</p><br>
-            <a href="/login" class="btn">Connexion Propriétaire</a>
+            <a href="/login" class="btn">Se connecter avec Discord</a>
         </div>
     {% else %}
+        {% if guilds %}
         <div class="admin-box">
             <h2>🛠️ Actions Rapides</h2>
             <form action="/admin_action" method="post">
@@ -90,15 +91,21 @@ HTML_TEMPLATE = """
 
         <h1>{{ title }}</h1>
         <table>
-            <tr><th>Position</th><th>Membre</th><th>ID Copiable</th>
+            <tr><th>Position</th><th>Membre</th><th>ID Copiable</th><th>Anniversaire</th>
                 {% if page == 'levels' %}<th>Niveau</th><th>XP</th>{% else %}<th>Solde</th>{% endif %}
             </tr>
             {% for i, row in enumerate(leaderboard, 1) %}
-            <tr><td>#{{ i }}</td><td>{{ row[3] or 'Inconnu' }}</td><td><code>{{ row[0] }}</code></td>
+            <tr><td>#{{ i }}</td><td>{{ row[3] or 'Inconnu' }}</td><td><code>{{ row[0] }}</code></td><td>🎂 {{ row[4] or 'Non défini' }}</td>
                 {% if page == 'levels' %}<td>⭐ {{ row[2] }}</td><td>{{ row[1] }} XP</td>{% else %}<td>🪙 {{ row[1] }} pièces</td>{% endif %}
             </tr>
             {% endfor %}
         </table>
+        {% else %}
+            <div style="margin-top: 100px;">
+                <h2>Aucun serveur trouvé 😢</h2>
+                <p>Tu n'es Administrateur d'aucun serveur sur lequel Eureka est présent.</p>
+            </div>
+        {% endif %}
     {% endif %}
 </body>
 </html>
@@ -107,20 +114,34 @@ HTML_TEMPLATE = """
 @app.route("/")
 async def index():
     msg = request.args.get("msg")
+    if not session.get("user"):
+        return await render_template_string(HTML_TEMPLATE, session=session, guilds=[], leaderboard=[])
+        
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
     c.execute("SELECT DISTINCT guild_id FROM users WHERE guild_id IS NOT NULL")
-    guilds = [row[0] for row in c.fetchall()]
+    db_guilds = [row[0] for row in c.fetchall()]
+    
+    # Vérifie si c'est le fondateur global, sinon filtre par ses serveurs gérés
+    is_global_owner = str(session["user"]["id"]) == str(os.getenv("OWNER_ID"))
+    if is_global_owner:
+        guilds = db_guilds
+    else:
+        user_managed = session["user"].get("managed_guilds", [])
+        guilds = [g for g in db_guilds if g in user_managed]
+        
     current_guild = request.args.get("guild_id")
-    if not current_guild and guilds:
-        current_guild = guilds[0]
+    if not current_guild or current_guild not in guilds:
+        current_guild = guilds[0] if guilds else None
 
-    try:
-        c.execute("SELECT user_id, xp, level, username FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
-    except sqlite3.OperationalError:
-        c.execute("SELECT user_id, xp, level, user_id FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
-    leaderboard = c.fetchall()
+    leaderboard = []
+    if current_guild:
+        try:
+            c.execute("SELECT user_id, xp, level, username, birthday FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
+        except sqlite3.OperationalError:
+            c.execute("SELECT user_id, xp, level, user_id, NULL FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10", (current_guild,))
+        leaderboard = c.fetchall()
     conn.close()
     
     return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="levels", title="🏆 Leaderboard - Top Niveaux", message=msg, guilds=guilds, current_guild=current_guild, request=request)
@@ -128,34 +149,51 @@ async def index():
 @app.route("/economy")
 async def economy():
     msg = request.args.get("msg")
+    if not session.get("user"):
+        return await render_template_string(HTML_TEMPLATE, session=session, guilds=[], leaderboard=[])
+        
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
     c.execute("SELECT DISTINCT guild_id FROM users WHERE guild_id IS NOT NULL")
-    guilds = [row[0] for row in c.fetchall()]
+    db_guilds = [row[0] for row in c.fetchall()]
+    
+    is_global_owner = str(session["user"]["id"]) == str(os.getenv("OWNER_ID"))
+    if is_global_owner:
+        guilds = db_guilds
+    else:
+        user_managed = session["user"].get("managed_guilds", [])
+        guilds = [g for g in db_guilds if g in user_managed]
+        
     current_guild = request.args.get("guild_id")
-    if not current_guild and guilds:
-        current_guild = guilds[0]
+    if not current_guild or current_guild not in guilds:
+        current_guild = guilds[0] if guilds else None
 
-    try:
-        c.execute("SELECT user_id, balance, 0, username FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
-    except sqlite3.OperationalError:
-        c.execute("SELECT user_id, balance, 0, user_id FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
-    leaderboard = c.fetchall()
+    leaderboard = []
+    if current_guild:
+        try:
+            c.execute("SELECT user_id, balance, 0, username, birthday FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
+        except sqlite3.OperationalError:
+            c.execute("SELECT user_id, balance, 0, user_id, NULL FROM users WHERE guild_id = ? ORDER BY balance DESC LIMIT 10", (current_guild,))
+        leaderboard = c.fetchall()
     conn.close()
     
     return await render_template_string(HTML_TEMPLATE, leaderboard=leaderboard, enumerate=enumerate, session=session, page="economy", title="💰 Leaderboard - Économie", message=msg, guilds=guilds, current_guild=current_guild, request=request)
 
 @app.route("/admin_action", methods=["POST"])
 async def admin_action():
-    owner_id = os.getenv("OWNER_ID")
-    if not session.get("user") or str(session["user"]["id"]) != str(owner_id):
+    if not session.get("user"):
         return "Non autorisé", 403
     
     form = await request.form
     target_id = form.get("target_id", "").strip()
     action = form.get("action")
     current_guild = form.get("guild_id", "0")
+    
+    is_global_owner = str(session["user"]["id"]) == str(os.getenv("OWNER_ID"))
+    if not is_global_owner and current_guild not in session["user"].get("managed_guilds", []):
+        return "Non autorisé à modifier ce serveur.", 403
+        
     try:
         amount = int(form.get("amount", 0))
     except ValueError:
@@ -198,7 +236,8 @@ async def login():
     proto = request.headers.get("X-Forwarded-Proto", "http" if "127.0.0.1" in host or "localhost" in host else "https")
     redirect_uri = f"{proto}://{host}/callback"
         
-    oauth_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={quote(redirect_uri)}&scope=identify"
+    # On demande maintenant le scope 'guilds' en plus de 'identify' !
+    oauth_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={quote(redirect_uri)}&scope=identify%20guilds"
     return redirect(oauth_url)
 
 @app.route("/logout")
@@ -228,12 +267,21 @@ async def callback():
         headers = {"Authorization": f"Bearer {token_info['access_token']}"}
         async with http_session.get("https://discord.com/api/users/@me", headers=headers) as user_resp:
             user_info = await user_resp.json()
+            
+        # Récupération des serveurs de l'utilisateur
+        async with http_session.get("https://discord.com/api/users/@me/guilds", headers=headers) as guilds_resp:
+            if guilds_resp.status == 200:
+                user_guilds = await guilds_resp.json()
+            else:
+                user_guilds = []
+                
+        # Filtrage : On ne garde que les serveurs où l'utilisateur est Fondateur ou possède la permission Administrateur (0x8)
+        managed_guilds = []
+        for g in user_guilds:
+            if g.get("owner") or (int(g.get("permissions", 0)) & 0x8) == 0x8:
+                managed_guilds.append(g["id"])
 
-        owner_id = os.getenv("OWNER_ID")
-        if str(user_info["id"]) == str(owner_id):
-            session["user"] = {"id": user_info["id"], "username": user_info["username"], "avatar": user_info.get("avatar")}
-        else:
-            return f"Accès refusé : Vous n'êtes pas le propriétaire de ce bot. (Votre ID : {user_info['id']})"
+        session["user"] = {"id": user_info["id"], "username": user_info["username"], "avatar": user_info.get("avatar"), "managed_guilds": managed_guilds}
         
     return redirect(url_for("index"))
 
