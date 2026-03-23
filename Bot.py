@@ -2,8 +2,6 @@ import json
 import discord
 from discord.ext import commands
 import os
-import sys
-import io
 import random
 import asyncio
 import datetime
@@ -72,6 +70,109 @@ class CouleurView(discord.ui.View):
         super().__init__(timeout=None) # Pour que le menu reste actif indéfiniment
         self.add_item(CouleurMenu())
 
+# --- SYSTÈME DE RÔLES PAR CATÉGORIE (CHOIX MULTIPLES) ---
+class RoleMenu(discord.ui.Select):
+    def __init__(self, placeholder, role_options, custom_id):
+        options = [
+            discord.SelectOption(label=name, emoji=emoji, value=name)
+            for name, emoji in role_options
+        ]
+        super().__init__(
+            placeholder=placeholder,
+            options=options,
+            min_values=0, # 0 permet à l'utilisateur de tout décocher
+            max_values=len(options), # Permet de sélectionner plusieurs rôles
+            custom_id=custom_id
+        )
+        self.role_names = [name for name, _ in role_options]
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        user_roles = interaction.user.roles
+        
+        managed_roles = [discord.utils.get(guild.roles, name=n) for n in self.role_names]
+        managed_roles = [r for r in managed_roles if r is not None]
+        
+        selected_roles = [discord.utils.get(guild.roles, name=v) for v in self.values]
+        selected_roles = [r for r in selected_roles if r is not None]
+        
+        # On trie ce qu'on doit ajouter et ce qu'on doit retirer
+        roles_to_add = [r for r in selected_roles if r not in user_roles]
+        roles_to_remove = [r for r in managed_roles if r not in selected_roles and r in user_roles]
+        
+        if roles_to_add: await interaction.user.add_roles(*roles_to_add)
+        if roles_to_remove: await interaction.user.remove_roles(*roles_to_remove)
+            
+        await interaction.response.send_message("✅ Tes rôles ont été mis à jour !", ephemeral=True)
+
+# --- SYSTÈME DE PRONOMS ET CRÉATION SUR MESURE ---
+class PronounModal(discord.ui.Modal, title="Création de Pronom Personnalisé"):
+    pronom_input = discord.ui.TextInput(
+        label="Quel est ton pronom ?",
+        placeholder="Ex: Al, Ul, ...",
+        max_length=20, # On limite la longueur pour éviter les abus
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        pronom_name = f"Pronom: {self.pronom_input.value}"
+        guild = interaction.guild
+        
+        # Nettoyer les anciens pronoms personnalisés du membre pour éviter l'accumulation
+        old_customs = [r for r in interaction.user.roles if r.name.startswith("Pronom: ")]
+        if old_customs:
+            await interaction.user.remove_roles(*old_customs)
+
+        # Création ou récupération du rôle s'il a déjà été créé par un autre membre
+        role = discord.utils.get(guild.roles, name=pronom_name)
+        if not role:
+            role = await guild.create_role(name=pronom_name, colour=discord.Colour.light_grey())
+        
+        await interaction.user.add_roles(role)
+        await interaction.response.send_message(f"✅ Ton pronom personnalisé **{self.pronom_input.value}** a été attribué !", ephemeral=True)
+
+class PronounMenu(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Homme (Il/Lui)", emoji="👨", value="Il / Lui 👨"),
+            discord.SelectOption(label="Femme (Elle/Elle)", emoji="👩", value="Elle / Elle 👩"),
+            discord.SelectOption(label="Iel / Ael", emoji="💛", value="Iel / Ael 💛"),
+            discord.SelectOption(label="Autre (Personnalisé)", emoji="✍️", value="autre")
+        ]
+        super().__init__(placeholder="👤 Choisis tes pronoms...", options=options, min_values=0, max_values=4, custom_id="select_pronoun")
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        user_roles = interaction.user.roles
+        
+        managed_names = ["Il / Lui 👨", "Elle / Elle 👩", "Iel / Ael 💛"]
+        managed_roles = [discord.utils.get(guild.roles, name=n) for n in managed_names if discord.utils.get(guild.roles, name=n)]
+        
+        selected_names = [v for v in self.values if v != "autre"]
+        selected_roles = [discord.utils.get(guild.roles, name=n) for n in selected_names if discord.utils.get(guild.roles, name=n)]
+        
+        roles_to_add = [r for r in selected_roles if r not in user_roles]
+        roles_to_remove = [r for r in managed_roles if r not in selected_roles and r in user_roles]
+        
+        if roles_to_add: await interaction.user.add_roles(*roles_to_add)
+        if roles_to_remove: await interaction.user.remove_roles(*roles_to_remove)
+        
+        if "autre" in self.values:
+            await interaction.response.send_modal(PronounModal())
+        else:
+            # Si on ne coche pas "Autre", on retire les anciens rôles personnalisés
+            old_customs = [r for r in user_roles if r.name.startswith("Pronom: ")]
+            if old_customs: await interaction.user.remove_roles(*old_customs)
+            await interaction.response.send_message("✅ Tes pronoms ont été mis à jour !", ephemeral=True)
+
+class RoleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(PronounMenu()) # Ajout du menu des pronoms tout en haut !
+        self.add_item(RoleMenu("🎮 Choisis tes jeux...", [("Gamer 🎮", "🎮"), ("FPS 🔫", "🔫"), ("RPG 🗡️", "🗡️")], "select_jeux"))
+        self.add_item(RoleMenu("📚 Choisis tes loisirs...", [("Littéraire 📚", "📚"), ("Cinéphile 🎬", "🎬"), ("Artiste 🎨", "🎨")], "select_loisirs"))
+        self.add_item(RoleMenu("✨ Choisis ton style...", [("Chill ☕", "☕"), ("Noctambule 🦉", "🦉"), ("Actif ⚡", "⚡")], "select_vibe"))
+
 # Initialisation des données
 data = load_data()
 economy = data.get("economy", {})
@@ -87,22 +188,6 @@ intents.members = True
 intents.reactions = True 
 
 bot = commands.Bot(command_prefix='?', intents=intents, help_command=None)
-
-# COMMANDE POUR ENVOYER LE PANNEAU
-'''@bot.command(extras={'category': '🛠️ Administration'})
-@commands.has_permissions(administrator=True)
-async def colorpanel(ctx):
-    """Envoie le menu de sélection des couleurs (Select Menu)"""
-    embed = discord.Embed(
-        title="🎨 Coloration du Pseudo",
-        description="Utilise le menu ci-dessous pour changer la couleur de ton nom sur le serveur !",
-        color=discord.Color.from_rgb(44, 47, 51)
-    )
-    embed.set_footer(text="Eureka Bot - Système de cosmétiques")
-    
-    await ctx.send(embed=embed, view=CouleurView())
-
-# --- UTILITAIRES ÉCONOMIE ---'''
 
 def get_balance(user_id):
     user_id = str(user_id) # JSON transforme les clés en string
@@ -169,6 +254,14 @@ async def on_member_remove(member):
         embed = discord.Embed(title=f"Au revoir {member.name} ! 🛫", color=discord.Color.red())
         embed.set_thumbnail(url=member.display_avatar.url)
         await channel.send(embed=embed)
+        
+    # Nettoyage des pronoms personnalisés vides si le membre qui part en était le dernier possesseur
+    for r in member.guild.roles:
+        if r.name.startswith("Pronom: ") and len(r.members) == 0:
+            try:
+                await r.delete(reason="Pronom inutilisé (membre parti)")
+            except discord.HTTPException:
+                pass
 
 # on_message
 @bot.event
@@ -191,6 +284,56 @@ async def on_message_edit(before, after):
         embed.add_field(name="Nouveau", value=after.content, inline=False)
         await log_ch.send(embed=embed)
 
+LEVEL_ROLES = {
+    5: "Initié 🔰",
+    10: "Habitué 🌟",
+    20: "Vétéran 💫",
+    30: "Maître 👑",
+    50: "Légende 🐉"
+}
+
+async def add_xp_to_user(member: discord.Member, amount: int, channel: discord.TextChannel):
+    global levels
+    user_id = str(member.id)
+    if user_id not in levels:
+        levels[user_id] = {"xp": 0, "level": 1}
+    
+    old_level = levels[user_id]["level"]
+    levels[user_id]["xp"] += amount
+    leveled_up = False
+    
+    # Une boucle permet de passer plusieurs niveaux d'un coup si on donne beaucoup d'XP avec une commande
+    while True:
+        lvl_actuel = levels[user_id]["level"]
+        xp_requis = 5 * (lvl_actuel ** 2) + (50 * lvl_actuel) + 100
+        if levels[user_id]["xp"] >= xp_requis:
+            levels[user_id]["level"] += 1
+            levels[user_id]["xp"] -= xp_requis # Conserve l'XP en surplus au lieu de remettre à 0 !
+            leveled_up = True
+        else:
+            break
+            
+    if leveled_up:
+        new_level = levels[user_id]["level"]
+        save_data()
+        
+        # Recherche du salon d'annonce ou utilise le salon actuel par défaut
+        niv_ch = discord.utils.get(member.guild.text_channels, name="niveaux-📈")
+        dest_ch = niv_ch if niv_ch else channel
+        
+        embed = discord.Embed(title="Niveau Supérieur ! 🎉", description=f"Bravo {member.mention} ! Tu as atteint le **Niveau {new_level}** ! 🚀", color=discord.Color.green())
+        await dest_ch.send(content=member.mention, embed=embed)
+        
+        # Vérification et ajout des rôles de paliers
+        for milestone, role_name in LEVEL_ROLES.items():
+            if old_level < milestone <= new_level:
+                role = discord.utils.get(member.guild.roles, name=role_name)
+                if role and role not in member.roles:
+                    await member.add_roles(role)
+                    await dest_ch.send(f"🎖️ Félicitations, tu obtiens le grade **{role_name}** !")
+    else:
+        save_data()
+
 xp_cooldown = {} # Pour l'anti-spam
 @bot.event
 async def on_message(message):
@@ -204,33 +347,50 @@ async def on_message(message):
 
     # Anti-spam : 15 secondes entre chaque gain d'XP
     if user_id not in xp_cooldown or now - xp_cooldown[user_id] > 15:
-        if user_id not in levels:
-            levels[user_id] = {"xp": 0, "level": 1}
-
         xp_gagne = random.randint(15, 25)
-        levels[user_id]["xp"] += xp_gagne
+        await add_xp_to_user(message.author, xp_gagne, message.channel)
         xp_cooldown[user_id] = now
-
-        # Calcul de l'XP requis pour le niveau suivant
-        lvl_actuel = levels[user_id]["level"]
-        xp_requis = 5 * (lvl_actuel ** 2) + (50 * lvl_actuel) + 100
-
-        if levels[user_id]["xp"] >= xp_requis:
-            levels[user_id]["level"] += 1
-            levels[user_id]["xp"] = 0 # On remet l'XP à 0 ou on garde le surplus
-            save_data()
-            await message.channel.send(f"🎊 Bravo {message.author.mention} ! Tu passes au **Niveau {lvl_actuel + 1}** ! 🚀")
-        
-        save_data()
 
     await bot.process_commands(message)
 
 # --- COMMANDES D'AIDE ET STATS ---
 
+class HelpMenu(discord.ui.Select):
+    def __init__(self, categories_dict):
+        self.categories_dict = categories_dict
+        # On crée une option dans le menu pour chaque catégorie trouvée
+        options = [discord.SelectOption(label=cat, value=cat) for cat in categories_dict.keys()]
+        super().__init__(placeholder="Choisis une catégorie...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        cat_name = self.values[0]
+        cmd_list = self.categories_dict[cat_name]
+        
+        embed = discord.Embed(title=f"📚 Aide - {cat_name}", color=discord.Color.blue())
+        value = ""
+        for c in sorted(cmd_list, key=lambda x: x.name):
+            value += f"**?{c.name}** : *{c.help or 'Aucune description'}*\n"
+        
+        embed.description = value
+        # Le paramètre ephemeral=True fait en sorte que seul l'utilisateur voit ce message !
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class HelpView(discord.ui.View):
+    def __init__(self, categories_dict, author_id):
+        super().__init__(timeout=120)
+        self.author_id = author_id
+        self.add_item(HelpMenu(categories_dict))
+        
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # On vérifie que seul l'auteur de la commande puisse utiliser le menu
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Utilise ta propre commande `?help` pour naviguer !", ephemeral=True)
+            return False
+        return True
+
 @bot.command()
 async def help(ctx):
-    """Affiche les commandes triées par catégories"""
-    embed = discord.Embed(title="📚 Aide - Eureka Bot", color=discord.Color.blue())
+    """Affiche le menu d'aide interactif"""
     categories = {}
     for cmd in bot.commands:
         if cmd.hidden: continue
@@ -238,13 +398,13 @@ async def help(ctx):
         if cat not in categories: categories[cat] = []
         categories[cat].append(cmd)
 
-    for cat_name, cmd_list in categories.items():
-        value = ""
-        for c in sorted(cmd_list, key=lambda x: x.name):
-            value += f"**?{c.name}** : *{c.help}*\n"
-        embed.add_field(name=cat_name, value=value, inline=False)
+    embed = discord.Embed(
+        title="📚 Aide - Eureka Bot", 
+        description="Sélectionne une catégorie dans le menu déroulant ci-dessous pour voir ses commandes !",
+        color=discord.Color.blue()
+    )
     embed.set_thumbnail(url=bot.user.display_avatar.url)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, view=HelpView(categories, ctx.author.id))
 
 @bot.command(extras={'category': '✨ Utilitaires'})
 async def stats(ctx):
@@ -268,12 +428,23 @@ async def setup(ctx):
             if ch.id != ctx.channel.id: await ch.delete()
         except: pass
 
+    # Fonction pour créer ou mettre à jour un rôle (permissions, couleur, etc.)
+    async def init_role(role_name, **kwargs):
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            try:
+                await role.edit(**kwargs)
+            except discord.Forbidden:
+                pass
+            return role
+        return await guild.create_role(name=role_name, **kwargs)
+
     # ROLES
-    color_red_r = discord.utils.get(guild.roles, name="Rouge 🔴") or await guild.create_role(name="Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=False)
-    color_yellow_r = discord.utils.get(guild.roles, name="Jaune 🟡") or await guild.create_role(name="Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=False)
-    color_green_r = discord.utils.get(guild.roles, name="Vert 🟢") or await guild.create_role(name="Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=False)
-    color_pink_r = discord.utils.get(guild.roles, name="Rose 🌸") or await guild.create_role(name="Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=False)
-    owner_r = discord.utils.get(guild.roles, name="Fondateur 👑") or await guild.create_role(name="Fondateur 👑", colour=discord.Colour.from_rgb(241, 196, 15), hoist=True, permissions=discord.Permissions(
+    color_red_r = await init_role("Rouge 🔴", colour=discord.Colour.from_rgb(231, 76, 60), hoist=False)
+    color_yellow_r = await init_role("Jaune 🟡", colour=discord.Colour.from_rgb(241, 196, 15), hoist=False)
+    color_green_r = await init_role("Vert 🟢", colour=discord.Colour.from_rgb(46, 204, 113), hoist=False)
+    color_pink_r = await init_role("Rose 🌸", colour=discord.Colour.from_rgb(255, 105, 180), hoist=False)
+    owner_r = await init_role("Fondateur 👑", colour=discord.Colour.from_rgb(241, 196, 15), hoist=True, permissions=discord.Permissions(
         add_reactions=False,
         administrator=True,
         attach_files=False,
@@ -334,7 +505,7 @@ async def setup(ctx):
         view_creator_monetization_analytics=False,
         view_guild_insights=False
     ))
-    admin_r = discord.utils.get(guild.roles, name="Administrateur 🛡️") or await guild.create_role(name="Administrateur 🛡️", colour=discord.Colour.from_rgb(231, 76, 60), hoist=True, permissions=discord.Permissions(
+    admin_r = await init_role("Administrateur 🛡️", colour=discord.Colour.from_rgb(231, 76, 60), hoist=True, permissions=discord.Permissions(
         add_reactions=False,
         administrator=True,
         attach_files=False,
@@ -395,7 +566,7 @@ async def setup(ctx):
         view_creator_monetization_analytics=False,
         view_guild_insights=False
     ))
-    mod_r = discord.utils.get(guild.roles, name="Modérateur ⚔️") or await guild.create_role(name="Modérateur ⚔️", colour=discord.Colour.from_rgb(46, 204, 113), hoist=True, permissions=discord.Permissions(
+    mod_r = await init_role("Modérateur ⚔️", colour=discord.Colour.from_rgb(46, 204, 113), hoist=True, permissions=discord.Permissions(
         add_reactions=False,
         administrator=False,
         attach_files=False,
@@ -456,9 +627,8 @@ async def setup(ctx):
         view_creator_monetization_analytics=False,
         view_guild_insights=False
     ))
-    member_r = discord.utils.get(guild.roles, name="Membre 👤") or await guild.create_role(name="Membre 👤", colour=discord.Colour.from_rgb(84, 160, 255), hoist=True, permissions=discord.Permissions(
+    member_r = await init_role("Membre 👤", colour=discord.Colour.from_rgb(84, 160, 255), hoist=True, permissions=discord.Permissions(
         add_reactions=True,
-        administrator=True,
         attach_files=True,
         ban_members=False,
         bypass_slowmode=False,
@@ -471,7 +641,7 @@ async def setup(ctx):
         create_private_threads=False,
         create_public_threads=False,
         deafen_members=False,
-        embed_links=False,
+        embed_links=True,
         external_emojis=True,
         external_stickers=True,
         kick_members=False,
@@ -493,11 +663,11 @@ async def setup(ctx):
         mute_members=False,
         pin_messages=False,
         priority_speaker=False,
-        read_message_history=False,
+        read_message_history=True,
         read_messages=True,
         request_to_speak=True,
         send_messages=True,
-        send_messages_in_threads=False,
+        send_messages_in_threads=True,
         send_polls=False,
         send_tts_messages=False,
         send_voice_messages=False,
@@ -517,41 +687,55 @@ async def setup(ctx):
         view_creator_monetization_analytics=False,
         view_guild_insights=False
     ))
-    booster_r = discord.utils.get(guild.roles, name="Booster 🚀") or await guild.create_role(name="Booster 🚀", colour=discord.Colour.from_rgb(244, 127, 255), hoist=True)
-    mayor_r = discord.utils.get(guild.roles, name="Maire 🏛️") or await guild.create_role(name="Maire 🏛️", colour=discord.Colour.from_rgb(230, 126, 34), hoist=True)
+    booster_r = await init_role("Booster 🚀", colour=discord.Colour.from_rgb(244, 127, 255), hoist=True)
+    mayor_r = await init_role("Maire 🏛️", colour=discord.Colour.from_rgb(230, 126, 34), hoist=True)
     
     # CREATION DE RÔLES DE BOUTIQUE
     # Ces rôles n'ont pas de permissions spéciales, ils sont esthétiques
-    vip_role = discord.utils.get(guild.roles, name="VIP ✨") or await guild.create_role(
-        name="VIP ✨", 
+    vip_role = await init_role(
+        "VIP ✨", 
         colour=discord.Colour.from_rgb(255, 215, 0), # Couleur dorée
         hoist=True # Pour qu'ils apparaissent séparément dans la liste des membres
     )
-    million_role = discord.utils.get(guild.roles, name="Millionnaire 👑") or await guild.create_role(
-        name="Millionnaire 👑", 
+    million_role = await init_role(
+        "Millionnaire 👑", 
         colour=discord.Colour.from_rgb(192, 192, 192), # Couleur argent
         hoist=True
     )
 
+    # NOUVEAUX RÔLES CENTRES D'INTÉRÊT ET PRONOMS
+    for nr in ["Gamer 🎮", "FPS 🔫", "RPG 🗡️", "Littéraire 📚", "Cinéphile 🎬", "Artiste 🎨", "Chill ☕", "Noctambule 🦉", "Actif ⚡", "Il / Lui 👨", "Elle / Elle 👩", "Iel / Ael 💛"]:
+        await init_role(nr, colour=discord.Colour.light_grey(), hoist=False)
+
+    # NOUVEAUX RÔLES DE NIVEAUX
+    roles_niveaux = []
+    for lvl_role in LEVEL_ROLES.values():
+        r = await init_role(lvl_role, colour=discord.Colour.teal(), hoist=True)
+        roles_niveaux.append(r)
+
     # --- HIÉRARCHIE DES RÔLES ---
     # On définit l'ordre. Plus le chiffre est grand, plus le rôle est haut.
     try:
-        await guild.edit_role_positions({
-            color_red_r: 15,
-            color_yellow_r: 14,
-            color_green_r: 13,
-            color_pink_r: 12,
-            owner_r: 11,
-            admin_r: 10,
-            mod_r: 9,
-            booster_r: 8,
-            mayor_r: 7,
-            vip_role: 6,
-            million_role: 5,
-            member_r: 4
-        })
-    except discord.Forbidden:
-        pass # Si le bot n'a pas son rôle assez haut, on ignore l'erreur
+        # On définit notre liste de hiérarchie de haut en bas
+        hierarchie = [
+            color_red_r, color_yellow_r, color_green_r, color_pink_r,
+            owner_r, admin_r, mod_r,
+            million_role, vip_role, mayor_r, booster_r
+        ] + roles_niveaux + [
+            member_r
+        ]
+        
+        # Calcul dynamique des positions pour éviter les erreurs !
+        pos_dict = {}
+        base_pos = 2
+        for role in reversed(hierarchie):
+            if role:
+                pos_dict[role] = base_pos
+                base_pos += 1
+                
+        await guild.edit_role_positions(pos_dict)
+    except discord.HTTPException:
+        pass # On ignore l'erreur silencieusement, car l'ordre de création naturel des rôles fait déjà le tri !
 
     # PERMISSIONS
     perms_hide = {guild.default_role: discord.PermissionOverwrite(view_channel=False), member_r: discord.PermissionOverwrite(view_channel=True), mod_r: discord.PermissionOverwrite(view_channel=True)}
@@ -575,6 +759,14 @@ async def setup(ctx):
     await guild.create_text_channel("médias-📸", category=c_commu) # Pour photos et vidéos
     await guild.create_text_channel("recherche-de-groupe-🎮", category=c_commu)
     await guild.create_text_channel("commandes-bot-🤖", category=c_commu)
+
+    # --- SALON NIVEAUX (Lecture Seule) ---
+    perms_niveaux = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False), 
+        member_r: discord.PermissionOverwrite(view_channel=True, send_messages=False), 
+        mod_r: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+    }
+    await guild.create_text_channel("niveaux-📈", category=c_commu, overwrites=perms_niveaux)
 
     # --- STAFF ---
     c_staff = await guild.create_category("🔐--STAFF--🔐", overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False), mod_r: discord.PermissionOverwrite(view_channel=True)})
@@ -617,6 +809,14 @@ async def setup(ctx):
     )
     # On utilise la Vue des couleurs que nous avons créée
     await roles_ch.send(embed=embed_couleur, view=CouleurView())
+
+    # --- ENVOI DU MENU DES CENTRES D'INTÉRÊT ---
+    embed_roles = discord.Embed(
+        title="🎭 Tes Centres d'Intérêt",
+        description="Utilise les menus déroulants ci-dessous pour choisir les rôles qui te correspondent le plus ! Tu peux en sélectionner plusieurs par catégorie.",
+        color=discord.Color.purple()
+    )
+    await roles_ch.send(embed=embed_roles, view=RoleView())
 
 @bot.command(extras={'category': '🛠️ Administration'})
 @commands.has_permissions(manage_messages=True)
@@ -691,20 +891,6 @@ async def game(ctx):
         await ctx.send(f"⌛ Perdu ! C'était {nb}.")
     except: await ctx.send("⏰ Temps écoulé.")
 
-# --- SYSTÈME D'ÉCONOMIE ET NIVEAUX ---
-economy = {} # {user_id: solde}
-
-def get_balance(user_id):
-    """Récupère le solde ou initialise à 1000 si nouveau"""
-    if user_id not in economy:
-        economy[user_id] = 1000
-    return economy[user_id]
-
-def add_balance(user_id, amount):
-    """Ajoute ou retire (si montant négatif) de l'argent"""
-    current = get_balance(user_id)
-    economy[user_id] = current + amount
-
 # --- COMMANDES ÉCONOMIE ---
 
 @bot.command(extras={'category': '💰 Économie'})
@@ -735,6 +921,46 @@ async def addmoney(ctx, member: discord.Member, amount: int):
     await ctx.send(f"👑 **{amount} pièces** ont été ajoutées à {member.display_name}.")
 
 # --- SYSTÈME DE NIVEAUX ---
+
+@bot.command(extras={'category': '🛠️ Administration'})
+@commands.has_permissions(administrator=True)
+async def addxp(ctx, member: discord.Member, amount: int):
+    """Donne de l'XP à un membre"""
+    if amount <= 0:
+        return await ctx.send("❌ Le montant doit être positif.")
+    await add_xp_to_user(member, amount, ctx.channel)
+    await ctx.send(f"✅ **{amount} XP** ont été donnés à {member.mention}.")
+
+@bot.command(extras={'category': '🛠️ Administration'})
+@commands.has_permissions(administrator=True)
+async def removexp(ctx, member: discord.Member, amount: int):
+    """Retire de l'XP à un membre"""
+    user_id = str(member.id)
+    if user_id not in levels or amount <= 0:
+        return await ctx.send("❌ Impossible de retirer cette XP.")
+    
+    levels[user_id]["xp"] -= amount
+    if levels[user_id]["xp"] < 0:
+        levels[user_id]["xp"] = 0
+    save_data()
+    await ctx.send(f"✅ **{amount} XP** ont été retirés à {member.mention}.")
+
+@bot.command(extras={'category': '🛠️ Administration'})
+@commands.has_permissions(administrator=True)
+async def setlevel(ctx, member: discord.Member, level: int):
+    """Définit le niveau d'un membre manuellement"""
+    if level <= 0:
+        return await ctx.send("❌ Le niveau doit être supérieur à 0.")
+        
+    user_id = str(member.id)
+    if user_id not in levels:
+        levels[user_id] = {"xp": 0, "level": 1}
+        
+    levels[user_id]["level"] = level
+    levels[user_id]["xp"] = 0
+    save_data()
+    await ctx.send(f"✅ Le niveau de {member.mention} a été défini sur **{level}**.")
+
 @bot.command(extras={'category': '📈 Niveaux'})
 async def rank(ctx, member: discord.Member = None):
     """Affiche ton niveau et ton XP actuelle"""
@@ -845,6 +1071,65 @@ async def slots(ctx, bet: int):
     else:
         await ctx.send(f"{res_msg}💀 **Perdu...**")
 
+@bot.command(extras={'category': '🎰 Casino'})
+async def roulette(ctx, color: str, bet: int):
+    """Roulette : mise sur 'rouge', 'noir' ou 'vert'"""
+    color = color.lower()
+    if color not in ['rouge', 'noir', 'vert']:
+        return await ctx.send("❌ Choisis une couleur valide : `rouge`, `noir` ou `vert`.")
+    if bet <= 0: return await ctx.send("❌ Mise invalide.")
+    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+
+    add_balance(ctx.author.id, -bet)
+    result_num = random.randint(0, 36)
+    
+    if result_num == 0: result_color = 'vert'
+    elif result_num % 2 == 0: result_color = 'noir'
+    else: result_color = 'rouge'
+    
+    if color == result_color:
+        multiplier = 14 if result_color == 'vert' else 2
+        win = bet * multiplier
+        add_balance(ctx.author.id, win)
+        await ctx.send(f"🎰 La bille s'arrête sur le **{result_num} {result_color.capitalize()}** !\n🎉 **Gagné !** Tu remportes **{win} pièces** !")
+    else:
+        await ctx.send(f"🎰 La bille s'arrête sur le **{result_num} {result_color.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
+
+@bot.command(extras={'category': '🎰 Casino'})
+async def roll(ctx, bet: int):
+    """Lance les dés (1-100). Fais plus de 50 pour doubler !"""
+    if bet <= 0: return await ctx.send("❌ Mise invalide.")
+    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+
+    add_balance(ctx.author.id, -bet)
+    result = random.randint(1, 100)
+
+    if result > 50:
+        win = bet * 2
+        add_balance(ctx.author.id, win)
+        await ctx.send(f"🎲 Tu as fait **{result}** !\n✅ **Gagné !** Tu remportes **{win} pièces**.")
+    else:
+        await ctx.send(f"🎲 Tu as fait **{result}**...\n❌ **Perdu !**")
+
+@bot.command(extras={'category': '🎰 Casino'})
+async def coinflip(ctx, face: str, bet: int):
+    """Pile ou Face avec mise ! Choisis 'pile' ou 'face'"""
+    face = face.lower()
+    if face not in ['pile', 'face']:
+        return await ctx.send("❌ Choisis `pile` ou `face`.")
+    if bet <= 0: return await ctx.send("❌ Mise invalide.")
+    if get_balance(ctx.author.id) < bet: return await ctx.send("❌ Solde insuffisant.")
+
+    add_balance(ctx.author.id, -bet)
+    result = random.choice(['pile', 'face'])
+
+    if face == result:
+        win = bet * 2
+        add_balance(ctx.author.id, win)
+        await ctx.send(f"🪙 La pièce tombe sur **{result.capitalize()}** !\n🎉 **Gagné !** Tu remportes **{win} pièces**.")
+    else:
+        await ctx.send(f"🪙 La pièce tombe sur **{result.capitalize()}**...\n💀 **Perdu !** Tu perds ta mise.")
+
 @bot.command(extras={'category': '💰 Économie'})
 async def work(ctx):
     """Gagne un salaire aléatoire (toutes les 1h)"""
@@ -867,7 +1152,6 @@ async def leaderboard(ctx):
         embed.add_field(name=f"{i}. {name}", value=f"{bal} pièces", inline=False)
     
     await ctx.send(embed=embed)
-
 
 # --- LANCEMENT ---
 chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.txt")
