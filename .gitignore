@@ -5,3 +5,8 @@ venv/
 .env
 .DS_Store
 Thumbs.db
+
+# Bases de données et fichiers de journalisation
+database.json
+database.db
+database.db-*

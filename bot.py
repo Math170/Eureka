@@ -1,37 +1,64 @@
-import json
 import discord
 from discord.ext import commands
 import os
 import random
 import asyncio
 import datetime
+import sqlite3
+from dotenv import load_dotenv
+
+load_dotenv() # Charge les variables secrètes depuis le fichier .env
 
 # --- CONFIGURATION DES FICHIERS ---
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.json")
+DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
 
-def load_data():
-    """Charge les données depuis le fichier JSON au démarrage"""
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {"economy": {}, "warns": {}, "levels": {}, "last_daily": {}}
+def init_db():
+    """Initialise la base de données SQLite"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('PRAGMA journal_mode=WAL;')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 1000, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS warns (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, reason TEXT)''')
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN username TEXT")
+    except sqlite3.OperationalError:
+        pass # La colonne existe déjà
+    conn.commit()
+    conn.close()
 
-def save_data():
-    """Sauvegarde l'état actuel dans le fichier JSON"""
-    data = {
-        "economy": economy,
-        "warns": warns,
-        "levels": levels,
-        "last_daily": last_daily
-    }
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+init_db()
+
+def get_user_db(user_id):
+    """Récupère les infos d'un utilisateur ou le crée s'il n'existe pas"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT balance, xp, level FROM users WHERE user_id = ?", (str(user_id),))
+    row = c.fetchone()
+    if not row:
+        c.execute("INSERT INTO users (user_id) VALUES (?)", (str(user_id),))
+        conn.commit()
+        row = (1000, 0, 1)
+    conn.close()
+    return row
+
+def update_user_name(user_id, username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, str(user_id)))
+    conn.commit()
+    conn.close()
+
+def update_level_stats(user_id, xp, level):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (xp, level, str(user_id)))
+    conn.commit()
+    conn.close()
 
 # SYSTÈME DE SÉLECTION DE ROLE AVEC SELECT MENU
 class CouleurMenu(discord.ui.Select):
     def __init__(self):
         options = [
-            #test de couleurs basiques, on peut en ajouter autant qu'on veut tant qu'on les crée dans le setup
             discord.SelectOption(label="Rouge", emoji="🔴",description="Passer mon pseudo en rouge", value="Rouge 🔴"),
             discord.SelectOption(label="Jaune", emoji="🟡",description="Passer mon pseudo en jaune", value="Jaune 🟡"),
             discord.SelectOption(label="Vert", emoji="🟢",description="Passer mon pseudo en vert", value="Vert 🟢"),
@@ -171,12 +198,6 @@ class RoleView(discord.ui.View):
         self.add_item(RoleMenu("📚 Choisis tes loisirs...", [("Littéraire 📚", "📚"), ("Cinéphile 🎬", "🎬"), ("Artiste 🎨", "🎨")], "select_loisirs"))
         self.add_item(RoleMenu("✨ Choisis ton style...", [("Chill ☕", "☕"), ("Noctambule 🦉", "🦉"), ("Actif ⚡", "⚡")], "select_vibe"))
 
-data = load_data()
-economy = data.get("economy", {})
-warns = data.get("warns", {})
-levels = data.get("levels", {}) 
-last_daily = data.get("last_daily", {})
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -186,16 +207,16 @@ intents.reactions = True
 bot = commands.Bot(command_prefix='?', intents=intents, help_command=None)
 
 def get_balance(user_id):
-    user_id = str(user_id) # JSON transforme les clés en string
-    if user_id not in economy:
-        economy[user_id] = 1000
-    return economy[user_id]
+    return get_user_db(user_id)[0]
 
 def add_balance(user_id, amount):
     user_id = str(user_id)
-    current = get_balance(user_id)
-    economy[user_id] = current + amount
-    save_data() # Sauvegarde automatique à chaque mouvement d'argent
+    get_user_db(user_id)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
 
 # --- SYSTÈME DE VÉRIFICATION (REACTION ROLE) ---
 
@@ -287,56 +308,51 @@ LEVEL_ROLES = {
 }
 
 async def add_xp_to_user(member: discord.Member, amount: int, channel: discord.TextChannel):
-    global levels
     user_id = str(member.id)
-    if user_id not in levels:
-        levels[user_id] = {"xp": 0, "level": 1}
+    _, xp, level = get_user_db(user_id)
     
-    old_level = levels[user_id]["level"]
-    levels[user_id]["xp"] += amount
+    old_level = level
+    xp += amount
     leveled_up = False
     
     # Une boucle permet de passer plusieurs niveaux d'un coup si on donne beaucoup d'XP avec une commande
     while True:
-        lvl_actuel = levels[user_id]["level"]
-        xp_requis = 5 * (lvl_actuel ** 2) + (50 * lvl_actuel) + 100
-        if levels[user_id]["xp"] >= xp_requis:
-            levels[user_id]["level"] += 1
-            levels[user_id]["xp"] -= xp_requis # Conserve l'XP en surplus au lieu de remettre à 0 !
+        xp_requis = 5 * (level ** 2) + (50 * level) + 100
+        if xp >= xp_requis:
+            level += 1
+            xp -= xp_requis # Conserve l'XP en surplus au lieu de remettre à 0 !
             leveled_up = True
         else:
             break
             
+    update_level_stats(user_id, xp, level)
+
     if leveled_up:
-        new_level = levels[user_id]["level"]
-        save_data()
-        
         # Recherche du salon d'annonce ou utilise le salon actuel par défaut
         niv_ch = discord.utils.get(member.guild.text_channels, name="niveaux-📈")
         dest_ch = niv_ch if niv_ch else channel
         
-        embed = discord.Embed(title="Niveau Supérieur ! 🎉", description=f"Bravo {member.mention} ! Tu as atteint le **Niveau {new_level}** ! 🚀", color=discord.Color.green())
+        embed = discord.Embed(title="Niveau Supérieur ! 🎉", description=f"Bravo {member.mention} ! Tu as atteint le **Niveau {level}** ! 🚀", color=discord.Color.green())
         await dest_ch.send(content=member.mention, embed=embed)
         
         # Vérification et ajout des rôles de paliers
         for milestone, role_name in LEVEL_ROLES.items():
-            if old_level < milestone <= new_level:
+            if old_level < milestone <= level:
                 role = discord.utils.get(member.guild.roles, name=role_name)
                 if role and role not in member.roles:
                     await member.add_roles(role)
                     await dest_ch.send(f"🎖️ Félicitations, tu obtiens le grade **{role_name}** !")
-    else:
-        save_data()
 
 xp_cooldown = {} # Pour l'anti-spam
 @bot.event
 async def on_message(message):
-    global levels, xp_cooldown
+    global xp_cooldown
     if message.author.bot or message.content.startswith('?'):
         await bot.process_commands(message)
         return
 
     user_id = str(message.author.id)
+    update_user_name(user_id, message.author.name) # Enregistre le pseudo pour le site web
     now = datetime.datetime.utcnow().timestamp()
 
     # Anti-spam : 15 secondes entre chaque gain d'XP
@@ -849,9 +865,14 @@ async def ban(ctx, member: discord.Member, *, reason="Aucune raison"):
 @commands.has_permissions(manage_messages=True)
 async def warn(ctx, member: discord.Member, *, reason="Aucune raison"):
     """Donne un warn et prévient en MP"""
-    if member.id not in warns: warns[member.id] = []
-    warns[member.id].append(reason)
-    nb = len(warns[member.id])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO warns (user_id, reason) VALUES (?, ?)", (str(member.id), reason))
+    c.execute("SELECT COUNT(*) FROM warns WHERE user_id = ?", (str(member.id),))
+    nb = c.fetchone()[0]
+    conn.commit()
+    conn.close()
+
     try:
         await member.send(f"⚠️ Tu as reçu un warn sur {ctx.guild.name} pour : {reason} (Total : {nb}/3)")
     except: pass
@@ -928,13 +949,10 @@ async def addxp(ctx, member: discord.Member, amount: int):
 async def removexp(ctx, member: discord.Member, amount: int):
     """Retire de l'XP à un membre"""
     user_id = str(member.id)
-    if user_id not in levels or amount <= 0:
-        return await ctx.send("❌ Impossible de retirer cette XP.")
-    
-    levels[user_id]["xp"] -= amount
-    if levels[user_id]["xp"] < 0:
-        levels[user_id]["xp"] = 0
-    save_data()
+    _, xp, level = get_user_db(user_id)
+    if amount <= 0: return await ctx.send("❌ Montant invalide.")
+    xp = max(0, xp - amount)
+    update_level_stats(user_id, xp, level)
     await ctx.send(f"✅ **{amount} XP** ont été retirés à {member.mention}.")
 
 @bot.command(extras={'category': '🛠️ Administration'})
@@ -945,12 +963,8 @@ async def setlevel(ctx, member: discord.Member, level: int):
         return await ctx.send("❌ Le niveau doit être supérieur à 0.")
         
     user_id = str(member.id)
-    if user_id not in levels:
-        levels[user_id] = {"xp": 0, "level": 1}
-        
-    levels[user_id]["level"] = level
-    levels[user_id]["xp"] = 0
-    save_data()
+    get_user_db(user_id)
+    update_level_stats(user_id, 0, level)
     await ctx.send(f"✅ Le niveau de {member.mention} a été défini sur **{level}**.")
 
 @bot.command(extras={'category': '📈 Niveaux'})
@@ -959,11 +973,9 @@ async def rank(ctx, member: discord.Member = None):
     member = member or ctx.author
     user_id = str(member.id)
 
-    if user_id not in levels:
-        return await ctx.send(f"✨ {member.display_name} n'a pas encore envoyé de messages.")
+    _, xp, lvl = get_user_db(user_id)
+    if xp == 0 and lvl == 1: return await ctx.send(f"✨ {member.display_name} n'a pas encore envoyé de messages.")
 
-    xp = levels[user_id]["xp"]
-    lvl = levels[user_id]["level"]
     xp_requis = 5 * (lvl ** 2) + (50 * lvl) + 100
 
     embed = discord.Embed(title=f"📊 Rang de {member.display_name}", color=discord.Color.blue())
@@ -980,17 +992,19 @@ async def rank(ctx, member: discord.Member = None):
 @bot.command(extras={'category': '📈 Niveaux'})
 async def leaderboard_xp(ctx):
     """Affiche les 5 membres ayant le plus haut niveau"""
-    if not levels:
-        return await ctx.send("Le classement est vide.")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id, xp, level FROM users ORDER BY level DESC, xp DESC LIMIT 5")
+    sorted_levels = c.fetchall()
+    conn.close()
 
-    # Tri par niveau, puis par XP
-    sorted_levels = sorted(levels.items(), key=lambda x: (x[1]['level'], x[1]['xp']), reverse=True)[:5]
+    if not sorted_levels: return await ctx.send("Le classement est vide.")
     
     embed = discord.Embed(title="🏆 Top 5 - Eureka Levels", color=discord.Color.purple())
-    for i, (u_id, stats) in enumerate(sorted_levels, 1):
+    for i, (u_id, xp, lvl) in enumerate(sorted_levels, 1):
         user = bot.get_user(int(u_id))
         name = user.name if user else f"Membre {u_id}"
-        embed.add_field(name=f"{i}. {name}", value=f"Niveau {stats['level']} ({stats['xp']} XP)", inline=False)
+        embed.add_field(name=f"{i}. {name}", value=f"Niveau {lvl} ({xp} XP)", inline=False)
     
     await ctx.send(embed=embed)
 
@@ -1133,9 +1147,13 @@ async def work(ctx):
 @bot.command(extras={'category': '💰 Économie'})
 async def leaderboard(ctx):
     """Affiche les plus riches"""
-    if not economy: return await ctx.send("Le classement est vide.")
-    
-    sorted_eco = sorted(economy.items(), key=lambda x: x[1], reverse=True)[:5]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 5")
+    sorted_eco = c.fetchall()
+    conn.close()
+
+    if not sorted_eco: return await ctx.send("Le classement est vide.")
     embed = discord.Embed(title="🏆 Top 5 des Fortunes", color=discord.Color.gold())
     
     for i, (u_id, bal) in enumerate(sorted_eco, 1):
@@ -1146,6 +1164,10 @@ async def leaderboard(ctx):
     await ctx.send(embed=embed)
 
 # --- LANCEMENT ---
-chemin_token = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.txt")
-with open(chemin_token, "r") as f:
-    bot.run(f.read().strip())
+TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    print("❌ ERREUR CRITIQUE : Le token du bot est introuvable !")
+    print("Vérifie que ton fichier s'appelle exactement '.env' et contient la ligne DISCORD_TOKEN=ton_token")
+    exit()
+
+bot.run(TOKEN)
